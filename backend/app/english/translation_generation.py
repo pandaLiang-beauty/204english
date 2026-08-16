@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from ..platform.ai_transport import AIProviderError
+from ..platform.db import begin_immediate, get_connection
+from .translation_quality import validate_translation_result
+from .translator import extract_words, translate_text, translation_configured
+
+
+logger = logging.getLogger(__name__)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _json_loads(value: Any, fallback: Any) -> Any:
+    if value is None or value == "":
+        return fallback
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, json.JSONDecodeError):
+        return fallback
+    return parsed if parsed is not None else fallback
+
+
+def _json_dumps(value: Any, fallback: Any) -> str:
+    if value is None:
+        value = fallback
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _load_sentence(sentence_id: int) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, text, word_translations_json, word_tips_json, sentence_translation
+            FROM english_sentences
+            WHERE id = ? AND COALESCE(deleted_at, '') = ''
+            """,
+            (sentence_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def _selected_words(row: dict) -> list[str] | None:
+    translations = _json_loads(row.get("word_translations_json"), {})
+    if isinstance(translations, dict) and translations:
+        return [str(word) for word in translations.keys() if str(word).strip()]
+    focused = extract_words(str(row.get("text") or ""))
+    return focused or []
+
+
+def _needs_translation(row: dict) -> bool:
+    if not str(row.get("sentence_translation") or "").strip():
+        return True
+    translations = _json_loads(row.get("word_translations_json"), {})
+    return isinstance(translations, dict) and any(not str(value or "").strip() for value in translations.values())
+
+
+def _merge_missing(
+    existing: Any,
+    generated: Any,
+    allowed_words: list[str],
+    *,
+    include_empty: bool = False,
+) -> dict[str, str]:
+    base = _json_loads(existing, {})
+    if not isinstance(base, dict):
+        base = {}
+    additions = generated if isinstance(generated, dict) else {}
+    base_by_lower = {str(key).strip().casefold(): str(value or "").strip() for key, value in base.items()}
+    additions_by_lower = {
+        str(key).strip().casefold(): str(value or "").strip()
+        for key, value in additions.items()
+        if str(key).strip()
+    }
+    merged: dict[str, str] = {}
+    for raw_word in allowed_words:
+        word = str(raw_word or "").strip()
+        if not word:
+            continue
+        key = word.casefold()
+        text = base_by_lower.get(key) or additions_by_lower.get(key) or ""
+        if include_empty or text:
+            merged[word] = text
+    return merged
+
+
+def _apply_translation_if_still_missing(sentence_id: int, result: dict, *, expected_text: str) -> bool:
+    with get_connection() as conn:
+        begin_immediate(conn)
+        current = conn.execute(
+            """
+            SELECT text, word_translations_json, word_tips_json, sentence_translation
+            FROM english_sentences
+            WHERE id = ? AND COALESCE(deleted_at, '') = ''
+            """,
+            (sentence_id,),
+        ).fetchone()
+        if not current:
+            return False
+        current_data = dict(current)
+        if str(current_data.get("text") or "") != expected_text:
+            return False
+        allowed_words = _selected_words(current_data)
+        word_translations = _merge_missing(
+            current_data.get("word_translations_json"),
+            result.get("word_translations"),
+            allowed_words,
+            include_empty=True,
+        )
+        word_tips = _merge_missing(
+            current_data.get("word_tips_json"),
+            result.get("word_tips"),
+            allowed_words,
+        )
+        cur = conn.execute(
+            """
+            UPDATE english_sentences
+            SET sentence_translation = CASE WHEN COALESCE(sentence_translation, '') = '' THEN ? ELSE sentence_translation END,
+                sentence_segments_json = CASE WHEN COALESCE(sentence_translation, '') = '' THEN ? ELSE sentence_segments_json END,
+                translation_segments_json = CASE WHEN COALESCE(sentence_translation, '') = '' THEN ? ELSE translation_segments_json END,
+                word_translations_json = ?,
+                word_tips_json = ?,
+                updated_at = ?
+            WHERE id = ?
+              AND COALESCE(deleted_at, '') = ''
+              AND text = ?
+            """,
+            (
+                str(result.get("sentence_translation") or "").strip(),
+                _json_dumps(result.get("sentence_segments") or [], []),
+                _json_dumps(result.get("translation_segments") or [], []),
+                _json_dumps(word_translations, {}),
+                _json_dumps(word_tips, {}),
+                _now(),
+                sentence_id,
+                expected_text,
+            ),
+        )
+        return bool(getattr(cur, "rowcount", 0) or conn.total_changes)
+
+
+def translate_sentence_if_missing_best_effort(sentence_id: int, expected_text: str | None = None) -> None:
+    if not translation_configured():
+        return
+    row = _load_sentence(sentence_id)
+    if not row:
+        return
+    if expected_text is not None and str(row.get("text") or "") != expected_text:
+        return
+    if not _needs_translation(row):
+        return
+    try:
+        text = str(row.get("text") or "")
+        words = _selected_words(row)
+        result = translate_text(text, words=words)
+        ok, reason = validate_translation_result(result, words or [], source_text=text)
+        if ok:
+            _apply_translation_if_still_missing(sentence_id, result, expected_text=text)
+            return
+        logger.warning("english auto translation rejected invalid result for sentence %s: %s", sentence_id, reason)
+    except AIProviderError as exc:
+        logger.warning("english auto translation failed for sentence %s: %s", sentence_id, exc.user_message)
+    except Exception:
+        logger.exception("english auto translation crashed for sentence %s", sentence_id)
+
+
+def translate_sentences_if_missing_best_effort(
+    sentence_ids: list[int],
+    expected_texts: dict[int, str] | None = None,
+) -> None:
+    seen: set[int] = set()
+    for value in sentence_ids:
+        try:
+            sentence_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if sentence_id <= 0 or sentence_id in seen:
+            continue
+        seen.add(sentence_id)
+        expected_text = expected_texts.get(sentence_id) if expected_texts else None
+        translate_sentence_if_missing_best_effort(sentence_id, expected_text=expected_text)

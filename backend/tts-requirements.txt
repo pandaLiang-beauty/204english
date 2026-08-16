@@ -1,0 +1,12 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+edge-tts==7.2.3
+torch==2.6.0+cpu
+kokoro==0.7.16
+misaki[en]==0.7.16
+spacy==3.8.0
+thinc==8.2.5
+blis==0.7.11
+numpy==1.26.4
+soundfile==0.13.1
+vendor/en_core_web_sm-3.8.0-py3-none-any.whl
