@@ -12,7 +12,7 @@ sources:
   - backend/app/english/repository.py
   - backend/app/english/passages.py
   - backend/app/english/stats.py
-source_fingerprint: 622d0e5020d51303d85d97527706c010a6f06e3e9c6288b2b7f0d4e1dccbf3f8
+source_fingerprint: 670cbbf80329de14bc101f34b17c36d2789a19b9c0ceafbc44ce5426b732fb8d
 ---
 
 # Data Map
@@ -49,4 +49,5 @@ source_fingerprint: 622d0e5020d51303d85d97527706c010a6f06e3e9c6288b2b7f0d4e1dccb
 - 带 `user_id` 的查询必须使用当前登录用户；这是个人数据边界，不是多租户需求。
 - JSON TEXT 字段经集中 helper 解析和规范化，不在 API 或前端拼 SQL 表示。
 - 软删除记录默认不得进入有效列表、排序、今日任务和复习轮次。
+- 软删除句子不得再被普通更新接口修改，非 round item 不得伪装成已完成。
 - 迁移前先备份；不要直接复制运行中的 SQLite 文件。

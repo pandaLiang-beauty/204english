@@ -1,4 +1,4 @@
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, getCurrentInstance, nextTick, onBeforeUnmount, ref } from 'vue'
 import { englishApi } from './api.js'
 import {
   editableElementToMarkdown,
@@ -65,6 +65,11 @@ export function usePassageEditor(callbacks = {}) {
     passageDirty.value = true
     passageEditRevision += 1
     schedulePassageAutosave()
+  }
+
+  function handlePassageFormInput(options = {}) {
+    if (options.bodyText) refreshPassageAnnotator(passageForm.value.bodyText)
+    markPassageDirty()
   }
 
   function emptyPassageForm() {
@@ -268,7 +273,14 @@ export function usePassageEditor(callbacks = {}) {
   async function flushPassageAutosave() {
     clearPassageAutosaveTimer()
     if (passageAutosavePromise) await passageAutosavePromise
-    return passageDirty.value ? persistPassageAutosave() : true
+    if (!passageDirty.value) return true
+    if (activePassage.value) return persistPassageAutosave()
+    passageError.value = '新文章尚未保存'
+    if (typeof window !== 'undefined' && window.confirm('新文章尚未保存，确定放弃这些内容吗？')) {
+      passageDirty.value = false
+      return true
+    }
+    return false
   }
 
   async function loadPassages(options = {}) {
@@ -508,10 +520,12 @@ export function usePassageEditor(callbacks = {}) {
     }
   }
 
-  onBeforeUnmount(() => {
-    clearPassageAutosaveTimer()
-    void flushPassageAutosave()
-  })
+  if (getCurrentInstance()) {
+    onBeforeUnmount(() => {
+      clearPassageAutosaveTimer()
+      if (activePassage.value) void flushPassageAutosave()
+    })
+  }
 
   return {
     passages,
@@ -545,6 +559,7 @@ export function usePassageEditor(callbacks = {}) {
     examTypeLabel,
     passageTypeLabel,
     passageActionLabel,
+    handlePassageFormInput,
     togglePassageBold,
     handlePassageAnnotatorInput,
     handlePassageAnnotatorKeydown,

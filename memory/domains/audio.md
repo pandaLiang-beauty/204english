@@ -11,11 +11,12 @@ sources:
   - backend/app/english/audio_generation.py
   - backend/app/english/api.py
   - frontend/src/english/useEnglishAudio.js
+  - frontend/src/english/useEnglishSentenceList.js
   - frontend/src/english/EnglishFlow.vue
   - backend/scripts/english/generate_english_audio.py
   - backend/scripts/english/generate_english_voice_previews.py
   - backend/scripts/english/reliability_check.py
-source_fingerprint: 02c524cdc2442544f4ee6959f7a6a95c9ec0316812a46922a08750d92763308b
+source_fingerprint: 4ed66a064e81f1225f199893be32f9bfbd497019bb67b7559382fcbe6bdd73bb
 ---
 
 # Audio
@@ -41,10 +42,13 @@ source_fingerprint: 02c524cdc2442544f4ee6959f7a6a95c9ec0316812a46922a08750d92763
 
 `useEnglishAudio.js` 在滑动窗口内预取 Blob URL；替换、暂停、列表更新或卸载时释放缓存。原生 `ended` 每次写一个 `sentence_play`；手动暂停不写事件。整句事件与手动 `+1` 分别进入逐句串行队列。
 
+正文更新使整句音频进入 pending 后，复习页立即停止并释放该句缓存、从当前队列移除，并禁止音频状态定时器重载复习列表。生成完成不会主动改变用户的复习位置；用户手动刷新或重新进入复习页后，ready 句才重新可见。句子更新后台任务优先生成整句音频，再处理重点词音频和自动翻译，以缩短回到可复习状态的等待。
+
 ## 必须保持
 
 - ready 必须对应存在、非空且身份当前的文件。
 - `stats.with_audio` 只计入同时具备 ready、非空路径和非空 hash 的有效记录。
 - 路径只使用受控 basename/slug，下载接口不能目录穿越。
 - 文本/provider/voice 改变后旧文件不可序列化或下载为可用资源。
+- pending、failed、missing 或身份失效的整句不得进入复习队列；ready 状态不得触发复习页自动刷新。
 - 单词计数、整句播放和手动复习并发时，每个事件都必须保留。

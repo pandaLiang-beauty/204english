@@ -154,6 +154,7 @@ def queue_state(
 ) -> dict:
     current, created = ensure_active_round(conn, user_id=user_id, ordered_sentence_ids=ordered_sentence_ids)
     round_id = int(current["id"])
+    eligible_sentence_ids = {int(sentence_id) for sentence_id in ordered_sentence_ids}
     items = conn.execute(
         """
         SELECT ri.sentence_id, ri.position, ri.completed_at
@@ -164,7 +165,12 @@ def queue_state(
         """,
         (round_id,),
     ).fetchall()
-    records = [dict(item) for item in items]
+    all_records = [dict(item) for item in items]
+    records = [
+        item
+        for item in all_records
+        if int(item["sentence_id"]) in eligible_sentence_ids
+    ]
     first_incomplete_index = next(
         (index for index, item in enumerate(records) if not str(item.get("completed_at") or "")),
         0,
@@ -174,8 +180,10 @@ def queue_state(
     requested_page = min(max(int(page or 1), 1), page_count)
     actual_page = 1 if created else resume_page if resume else requested_page
     start = (actual_page - 1) * page_size
-    total = len(records)
-    completed = sum(1 for item in records if str(item.get("completed_at") or ""))
+    queue_total = len(records)
+    queue_completed = sum(1 for item in records if str(item.get("completed_at") or ""))
+    total = len(all_records)
+    completed = sum(1 for item in all_records if str(item.get("completed_at") or ""))
     return {
         "round": {
             "id": round_id,
@@ -184,11 +192,13 @@ def queue_state(
             "completed": completed,
             "total": total,
             "remaining": max(total - completed, 0),
+            "available": queue_total,
+            "available_remaining": max(queue_total - queue_completed, 0),
             "resume_page": resume_page,
         },
         "page": actual_page,
         "records": records[start : start + page_size],
-        "total": total,
+        "total": queue_total,
     }
 
 
@@ -198,7 +208,7 @@ def complete_current_item(conn, *, user_id: int, sentence_id: int) -> dict:
         return {"completed": False, "round_completed": False}
     current = dict(row)
     now_text = _iso(_utc_now())
-    conn.execute(
+    cursor = conn.execute(
         """
         UPDATE english_review_round_items
         SET completed_at = CASE WHEN COALESCE(completed_at, '') = '' THEN ? ELSE completed_at END,
@@ -207,6 +217,8 @@ def complete_current_item(conn, *, user_id: int, sentence_id: int) -> dict:
         """,
         (now_text, now_text, int(current["id"]), user_id, sentence_id),
     )
+    if cursor.rowcount <= 0:
+        return {"completed": False, "round_completed": False, "round_id": int(current["id"])}
     total, completed = _active_sentence_counts(conn, round_id=int(current["id"]))
     done = total > 0 and completed >= total
     if done:

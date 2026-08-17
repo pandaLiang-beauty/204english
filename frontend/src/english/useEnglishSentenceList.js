@@ -191,6 +191,14 @@ export function useEnglishSentenceList(context = {}) {
     return Object.values(sentence?.word_translations || {}).some(value => !String(value || '').trim())
   }
 
+  function isReviewQueueSentenceReady(sentence) {
+    return Boolean(
+      sentence?.audio_available
+      && sentence?.audio_url
+      && String(sentence?.audio_status || '').toLowerCase() === 'ready'
+    )
+  }
+
   function clearTranslationRefresh(sentenceId) {
     if (typeof window === 'undefined') return
     const timer = translationRefreshTimers.get(Number(sentenceId))
@@ -339,24 +347,27 @@ export function useEnglishSentenceList(context = {}) {
     return context.audioControls?.() || {}
   }
 
-  async function load(options = {}) {
-    loading.value = true
-    error.value = ''
-    try {
+  async function fetchActivity({ includeHeatmap = false } = {}) {
+    const statsRequest = englishApi.stats({
+      includeWordNetwork: !context.isReview?.()
+    })
+    if (includeHeatmap) {
       const [statsResult, heatmapResult] = await Promise.all([
-        englishApi.stats(),
+        statsRequest,
         englishApi.heatmap({ days: 119 })
       ])
       stats.value = statsResult
       heatmap.value = heatmapResult
-      total.value = Number(statsResult.active || total.value || 0)
+    } else {
+      stats.value = await statsRequest
+    }
+    total.value = Number(stats.value?.active || total.value || 0)
+  }
 
-      if (context.isStats?.()) {
-        audioControls().disposeSentenceCaches?.(sentences.value)
-        sentences.value = []
-        return
-      }
-
+  async function load(options = {}) {
+    loading.value = true
+    error.value = ''
+    try {
       if (context.isPassages?.()) {
         audioControls().disposeSentenceCaches?.(sentences.value)
         sentences.value = []
@@ -364,13 +375,24 @@ export function useEnglishSentenceList(context = {}) {
         return
       }
 
-      const shouldResumeRound = Boolean(
+      await fetchActivity({ includeHeatmap: Boolean(context.isStats?.()) })
+
+      if (context.isStats?.()) {
+        audioControls().disposeSentenceCaches?.(sentences.value)
+        sentences.value = []
+        return
+      }
+
+      const usesRoundQueue = Boolean(
         context.isReview?.()
         && sort.value === 'smart'
         && !appliedSearch.value
+      )
+      const shouldResumeRound = Boolean(
+        usesRoundQueue
         && (options.resumeRound || !roundInitialized.value)
       )
-      const data = await englishApi.sentences(
+      const sentenceParams = (
         context.isCreate?.()
           ? { page: 1, pageSize: 10, sort: 'latest' }
           : {
@@ -378,15 +400,43 @@ export function useEnglishSentenceList(context = {}) {
               pageSize: Number(pageSize.value || 20),
               search: appliedSearch.value,
               sort: sort.value,
-              roundQueue: Boolean(context.isReview?.() && sort.value === 'smart' && !appliedSearch.value),
+              roundQueue: usesRoundQueue,
               resume: shouldResumeRound
             }
       )
+      let data = await englishApi.sentences(sentenceParams)
       const previousById = new Map(sentences.value.map(sentence => [sentence.id, sentence]))
-      const loadedItems = (data.items || []).map(item => decorateSentenceRecord(item, previousById.get(item.id)))
-      const nextItems = shouldResumeRound && data.review_round
-        ? loadedItems.filter(item => !item.review_round_item_completed)
+      let loadedItems = (data.items || []).map(item => decorateSentenceRecord(item, previousById.get(item.id)))
+      let nextItems = usesRoundQueue && data.review_round
+        ? loadedItems.filter(item => (
+            !item.review_round_item_completed
+            && isReviewQueueSentenceReady(item)
+          ))
         : loadedItems
+
+      const resumePage = Number(data.review_round?.resume_page || 0)
+      const loadedPage = Number(data.page || page.value || 1)
+      if (
+        usesRoundQueue
+        && !nextItems.length
+        && Number(data.review_round?.remaining || 0) > 0
+        && resumePage > 0
+        && resumePage !== loadedPage
+      ) {
+        data = await englishApi.sentences({
+          ...sentenceParams,
+          page: resumePage,
+          resume: false
+        })
+        loadedItems = (data.items || []).map(item => decorateSentenceRecord(item, previousById.get(item.id)))
+        nextItems = data.review_round
+          ? loadedItems.filter(item => (
+              !item.review_round_item_completed
+              && isReviewQueueSentenceReady(item)
+            ))
+          : loadedItems
+      }
+
       const nextIds = new Set(nextItems.map(sentence => sentence.id))
       sentences.value.forEach(sentence => {
         if (!nextIds.has(sentence.id)) audioControls().disposeSentenceCaches?.([sentence])
@@ -407,12 +457,13 @@ export function useEnglishSentenceList(context = {}) {
   }
 
   async function refreshActivity() {
-    const [statsResult, heatmapResult] = await Promise.all([
-      englishApi.stats(),
-      englishApi.heatmap({ days: 119 })
-    ])
-    stats.value = statsResult
-    heatmap.value = heatmapResult
+    if (context.isPassages?.()) return true
+    try {
+      await fetchActivity({ includeHeatmap: Boolean(context.isStats?.()) })
+      return true
+    } catch (_err) {
+      return false
+    }
   }
 
   async function reloadFirstPage() {
@@ -439,12 +490,15 @@ export function useEnglishSentenceList(context = {}) {
 
   async function createSentence() {
     saving.value = true
+    error.value = ''
     try {
       await englishApi.createSentence(payloadFromDraft(draft.value))
       draft.value = emptyDraft()
       createOpen.value = false
       await reloadFirstPage()
       audioControls().scheduleAudioStatusRefresh?.()
+    } catch (err) {
+      error.value = err?.message || '创建句子失败'
     } finally {
       saving.value = false
     }
@@ -491,6 +545,8 @@ export function useEnglishSentenceList(context = {}) {
       bulkText.value = ''
       await reloadFirstPage()
       audioControls().scheduleAudioStatusRefresh?.(45000)
+    } catch (err) {
+      bulkMessage.value = err?.message || '批量导入失败'
     } finally {
       bulkLoading.value = false
     }
@@ -533,6 +589,8 @@ export function useEnglishSentenceList(context = {}) {
     sentence.ui.message = ''
     try {
       const updated = await englishApi.updateSentence(sentence.id, payload)
+      const audioNeedsRegeneration = Boolean(updated?.audio_needs_regeneration)
+      const leavesReviewQueue = Boolean(audioNeedsRegeneration && context.isReview?.())
       updateSentenceInList(updated, sentence)
       const fresh = sentences.value.find(item => item.id === sentence.id)
       if (fresh) {
@@ -542,14 +600,36 @@ export function useEnglishSentenceList(context = {}) {
         } else {
           fresh.ui.showEditor = false
           if (needsGeneratedTranslation(fresh)) {
-            fresh.ui.message = '已保存，正在自动翻译'
-            scheduleTranslationRefresh(fresh.id, fresh.text)
+            fresh.ui.message = audioNeedsRegeneration
+              ? '已保存，翻译和音频已进入更新流程'
+              : '已保存，正在自动翻译'
+            if (!leavesReviewQueue) scheduleTranslationRefresh(fresh.id, fresh.text)
           } else {
-            fresh.ui.message = '已保存'
+            fresh.ui.message = audioNeedsRegeneration
+              ? '已保存，音频已进入重新生成队列'
+              : '已保存'
           }
         }
       }
-      audioControls().scheduleAudioStatusRefresh?.()
+      if (leavesReviewQueue && fresh) {
+        const previousAvailable = Number(reviewRound.value?.available ?? total.value ?? 0)
+        const previousAvailableRemaining = Number(
+          reviewRound.value?.available_remaining ?? sentences.value.length
+        )
+        audioControls().disposeSentenceCaches?.([fresh])
+        const index = sentences.value.findIndex(item => Number(item.id) === Number(fresh.id))
+        if (index >= 0) sentences.value.splice(index, 1)
+        total.value = Math.max(Number(total.value || 0) - 1, 0)
+        if (reviewRound.value) {
+          reviewRound.value = {
+            ...reviewRound.value,
+            available: Math.max(previousAvailable - 1, 0),
+            available_remaining: Math.max(previousAvailableRemaining - 1, 0)
+          }
+        }
+      } else if (!context.isReview?.()) {
+        audioControls().scheduleAudioStatusRefresh?.()
+      }
     } catch (err) {
       sentence.ui.message = err?.message || '保存失败'
     } finally {
@@ -562,9 +642,14 @@ export function useEnglishSentenceList(context = {}) {
   async function deleteSentence(sentence) {
     if (!window.confirm(`确认删除句子 #${sentence.id} 吗？`)) return
     clearTranslationRefresh(sentence.id)
-    await englishApi.deleteSentence(sentence.id)
-    audioControls().disposeSentenceCaches?.([sentence])
-    await load()
+    sentence.ui.message = ''
+    try {
+      await englishApi.deleteSentence(sentence.id)
+      audioControls().disposeSentenceCaches?.([sentence])
+      await load()
+    } catch (err) {
+      sentence.ui.message = err?.message || '删除失败'
+    }
   }
 
   function updateSentenceInList(updated, previous) {

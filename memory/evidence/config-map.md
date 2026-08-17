@@ -50,9 +50,11 @@ sources:
 | `STUDY_ENGLISH_AI_API_KEY` | `<secret>` | `.env.example`, `backend/scripts/english/reliability_check.py` |
 | `STUDY_ENGLISH_AI_BASE_URL` | `(empty / code default)` | `.env.example`, `backend/scripts/english/reliability_check.py` |
 | `STUDY_ENGLISH_AI_DISABLE_THINKING` | `(empty / code default)` | `.env.example` |
-| `STUDY_ENGLISH_AI_MAX_TOKENS` | `(empty / code default)` | `.env.example` |
+| `STUDY_ENGLISH_AI_MAX_TOKENS` | `(empty / code default)` | `.env.example`, `backend/scripts/english/reliability_check.py` |
 | `STUDY_ENGLISH_AI_MODEL` | `(empty / code default)` | `.env.example`, `backend/scripts/english/reliability_check.py` |
-| `STUDY_ENGLISH_AI_TEMPERATURE` | `1` | `.env.example` |
+| `STUDY_ENGLISH_AI_REASONING_EFFORT` | `(empty / code default)` | `.env.example` |
+| `STUDY_ENGLISH_AI_TEMPERATURE` | `1` | `.env.example`, `backend/scripts/english/reliability_check.py` |
+| `STUDY_ENGLISH_AI_TIMEOUT_SECONDS` | `(empty / code default)` | `.env.example`, `backend/scripts/english/reliability_check.py` |
 | `STUDY_ENGLISH_AUTO_SENTENCE_AUDIO` | `(empty / code default)` | `backend/app/english/audio_generation.py` |
 | `STUDY_ENGLISH_AUTO_SENTENCE_AUDIO_LIMIT` | `(empty / code default)` | `backend/app/english/audio_generation.py` |
 | `STUDY_ENGLISH_AUTO_WORD_AUDIO` | `(empty / code default)` | `backend/app/english/audio_generation.py` |

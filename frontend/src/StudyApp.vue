@@ -11,8 +11,6 @@
       <EnglishFlow
         ref="englishFlow"
         :mode="view"
-        @go-passages="setView('passages')"
-        @go-review="setView('review')"
       />
     </main>
   </div>

@@ -12,7 +12,7 @@ sources:
   - backend/app/english/translation_generation.py
   - frontend/src/english/useEnglishSentenceList.js
   - backend/scripts/english/reliability_check.py
-source_fingerprint: ae2229a5e2eb916b62d351234dc0b1455e2a6c68ed23aa34de12f9dc52d1fa00
+source_fingerprint: cb474940cbb95a0db654a4f4f56867da560170d7d97d6ec1408b7c4804aa8076
 ---
 
 # Decision 0004: Guard Asynchronous Write-Back With Source Identity

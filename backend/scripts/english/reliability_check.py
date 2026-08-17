@@ -28,6 +28,34 @@ def _decode_json(raw: object, fallback):
         return fallback
 
 
+def _mark_sentence_audio_ready(sentence_id: int) -> dict:
+    sentence = repository.get_sentence(sentence_id)
+    assert sentence, sentence_id
+    provider = str(sentence["audio_effective_provider"])
+    voice = str(sentence["audio_effective_voice"])
+    audio_hash = repository.sentence_audio_hash(
+        str(sentence["text"]),
+        provider=provider,
+        voice=voice,
+    )
+    audio_path = repository.ENGLISH_AUDIO_DIR / f"sentence-{sentence_id}-{audio_hash[:12]}.wav"
+    audio_path.parent.mkdir(parents=True, exist_ok=True)
+    audio_path.write_bytes(b"ready-audio")
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE english_sentences
+            SET audio_path = ?, audio_provider = ?, audio_voice = ?, audio_hash = ?,
+                audio_status = 'ready', audio_error = ''
+            WHERE id = ?
+            """,
+            (audio_path.name, provider, voice, audio_hash, sentence_id),
+        )
+    ready = repository.get_sentence(sentence_id)
+    assert ready and ready["audio_available"] is True, ready
+    return ready
+
+
 def check_sentence_integrity() -> None:
     with get_connection() as conn:
         rows = [
@@ -56,7 +84,12 @@ def check_sentence_integrity() -> None:
         assert translation_keys == marked_keys, row["id"]
         assert all(repository._normalize_focus_word(key) in translation_keys for key in tips), row["id"]
         assert all(repository._normalize_focus_word(key) in translation_keys for key in counts), row["id"]
-    today = repository.stats(user_id=1)["today"]
+    summary = repository.stats(user_id=1)
+    lightweight_summary = repository.stats(user_id=1, include_word_network=False)
+    assert "word_network" in summary, summary
+    assert "word_network" not in lightweight_summary, lightweight_summary
+    assert lightweight_summary["today"] == summary["today"], lightweight_summary
+    today = summary["today"]
     assert "reviewed_sentences" in today, today
     assert int(today["reviewed_sentences"]) <= int(today["sentence_reviews"]), today
 
@@ -100,7 +133,14 @@ def check_kokoro_voice_catalog() -> None:
 
 
 def check_dedicated_ai_configuration() -> None:
-    names = ("STUDY_ENGLISH_AI_BASE_URL", "STUDY_ENGLISH_AI_API_KEY", "STUDY_ENGLISH_AI_MODEL")
+    names = (
+        "STUDY_ENGLISH_AI_BASE_URL",
+        "STUDY_ENGLISH_AI_API_KEY",
+        "STUDY_ENGLISH_AI_MODEL",
+        "STUDY_ENGLISH_AI_TEMPERATURE",
+        "STUDY_ENGLISH_AI_MAX_TOKENS",
+        "STUDY_ENGLISH_AI_TIMEOUT_SECONDS",
+    )
     original = {name: os.environ.get(name) for name in names}
     try:
         os.environ["STUDY_ENGLISH_AI_BASE_URL"] = "https://ai.example/v1"
@@ -110,6 +150,13 @@ def check_dedicated_ai_configuration() -> None:
         assert options["base_url"] == "https://ai.example/v1", options
         assert options["api_key"] == "test-key", options
         assert options["model"] == "provider/deepseek-v4-pro", options
+        os.environ["STUDY_ENGLISH_AI_TEMPERATURE"] = "not-a-number"
+        try:
+            translator._english_ai_options()
+        except translator.AIProviderError as exc:
+            assert "温度参数" in exc.user_message, exc.user_message
+        else:
+            raise AssertionError("invalid English AI temperature must be controlled")
     finally:
         for name, value in original.items():
             if value is None:
@@ -485,6 +532,164 @@ def check_deleted_sentence_lifetime_stats() -> None:
         platform_db.DB_PATH = original_path
 
 
+def check_sentence_write_boundaries() -> None:
+    original_path = platform_db.DB_PATH
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            platform_db.DB_PATH = Path(temp_dir) / "study.db"
+            initialize_database()
+            initialize_english_schema()
+            with get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO users(username, password_hash, display_name) VALUES ('admin', 'test', 'Admin')"
+                )
+
+            try:
+                repository.create_sentence(text="   ")
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("blank sentence must be rejected")
+
+            first = repository.create_sentence(
+                text="A **focus** word starts the review round.",
+                word_translations={"focus": "重点"},
+            )
+            repository.list_sentences(user_id=1, sort="smart", page=1, page_size=20, resume=True)
+            second = repository.create_sentence(text="A later sentence is not yet in that frozen round.")
+            reviewed = repository.review_sentence(user_id=1, sentence_id=int(second["id"]))
+            assert reviewed and reviewed["review_round_item_completed"] is False, reviewed
+
+            try:
+                repository.record_word_play(user_id=1, sentence_id=int(first["id"]), word="other")
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("non-focus word play must be rejected")
+
+            assert repository.delete_sentence(sentence_id=int(second["id"]))
+            assert repository.update_sentence(
+                sentence_id=int(second["id"]),
+                text="Deleted content must stay deleted.",
+            ) is None
+    finally:
+        platform_db.DB_PATH = original_path
+
+
+def check_review_queue_waits_for_ready_audio() -> None:
+    original_path = platform_db.DB_PATH
+    original_audio_dir = repository.ENGLISH_AUDIO_DIR
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            platform_db.DB_PATH = root / "study.db"
+            repository.ENGLISH_AUDIO_DIR = root / "audio"
+            initialize_database()
+            initialize_english_schema()
+            with get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO users(username, password_hash, display_name) VALUES ('admin', 'test', 'Admin')"
+                )
+
+            pending = repository.create_sentence(text="A pending sentence must wait outside review.")
+            failed = repository.create_sentence(text="A failed sentence must also wait outside review.")
+            missing = repository.create_sentence(text="A missing sentence must stay outside review.")
+            with get_connection() as conn:
+                conn.execute(
+                    "UPDATE english_sentences SET audio_status = 'failed' WHERE id = ?",
+                    (int(failed["id"]),),
+                )
+                conn.execute(
+                    "UPDATE english_sentences SET audio_status = 'missing' WHERE id = ?",
+                    (int(missing["id"]),),
+                )
+
+            empty_queue = repository.list_sentences(
+                user_id=1,
+                sort="smart",
+                page=1,
+                page_size=20,
+                resume=True,
+            )
+            round_id = int(empty_queue["review_round"]["id"])
+            assert empty_queue["items"] == [], empty_queue
+            assert empty_queue["total"] == 0, empty_queue
+            assert empty_queue["review_round"]["available"] == 0, empty_queue
+            with get_connection() as conn:
+                item_count = conn.execute(
+                    "SELECT COUNT(*) AS count FROM english_review_round_items WHERE round_id = ?",
+                    (round_id,),
+                ).fetchone()["count"]
+            assert int(item_count) == 0, item_count
+
+            first_ready = _mark_sentence_audio_ready(int(pending["id"]))
+            first_load = repository.list_sentences(
+                user_id=1,
+                sort="smart",
+                page=1,
+                page_size=20,
+                resume=True,
+            )
+            assert [int(item["id"]) for item in first_load["items"]] == [int(first_ready["id"])], first_load
+            assert first_load["review_round"]["id"] == round_id, first_load
+            assert first_load["review_round"]["total"] == 1, first_load
+            assert first_load["review_round"]["available_remaining"] == 1, first_load
+
+            second_ready = _mark_sentence_audio_ready(int(failed["id"]))
+            second_load = repository.list_sentences(
+                user_id=1,
+                sort="smart",
+                page=1,
+                page_size=20,
+                resume=False,
+            )
+            assert [int(item["id"]) for item in second_load["items"]] == [
+                int(first_ready["id"]),
+                int(second_ready["id"]),
+            ], second_load
+            assert [int(item["review_round_position"]) for item in second_load["items"]] == [1, 2], second_load
+
+            changed = repository.update_sentence(
+                sentence_id=int(first_ready["id"]),
+                text="A corrected sentence must wait outside review until its new audio is ready.",
+            )
+            assert changed and changed["audio_status"] == "pending", changed
+            hidden_load = repository.list_sentences(
+                user_id=1,
+                sort="smart",
+                page=1,
+                page_size=20,
+                resume=False,
+            )
+            assert [int(item["id"]) for item in hidden_load["items"]] == [int(second_ready["id"])], hidden_load
+            assert hidden_load["review_round"]["total"] == 2, hidden_load
+            assert hidden_load["review_round"]["remaining"] == 2, hidden_load
+            assert hidden_load["review_round"]["available"] == 1, hidden_load
+            assert hidden_load["review_round"]["available_remaining"] == 1, hidden_load
+
+            regenerated = _mark_sentence_audio_ready(int(first_ready["id"]))
+            restored_load = repository.list_sentences(
+                user_id=1,
+                sort="smart",
+                page=1,
+                page_size=20,
+                resume=True,
+            )
+            assert [int(item["id"]) for item in restored_load["items"]] == [
+                int(regenerated["id"]),
+                int(second_ready["id"]),
+            ], restored_load
+            assert [int(item["review_round_position"]) for item in restored_load["items"]] == [1, 2], restored_load
+            assert restored_load["review_round"]["id"] == round_id, restored_load
+            assert all(
+                int(item["id"]) != int(missing["id"])
+                for item in restored_load["items"]
+            ), restored_load
+    finally:
+        platform_db.DB_PATH = original_path
+        repository.ENGLISH_AUDIO_DIR = original_audio_dir
+
+
 def check_sqlite_review_concurrency_and_stale_audio() -> None:
     original_path = platform_db.DB_PATH
     original_audio_dir = repository.ENGLISH_AUDIO_DIR
@@ -616,6 +821,8 @@ CHECKS = (
     check_legacy_audio_metadata_reconciliation,
     check_focus_map_pruning_and_reconciliation,
     check_deleted_sentence_lifetime_stats,
+    check_sentence_write_boundaries,
+    check_review_queue_waits_for_ready_audio,
     check_sqlite_review_concurrency_and_stale_audio,
     check_today_passage_keeps_completed_items,
 )

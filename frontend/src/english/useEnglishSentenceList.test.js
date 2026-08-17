@@ -12,10 +12,188 @@ function sentenceRecord(reviewCount = 0, roundCompleted = false) {
     text: 'Repeated use builds familiarity.',
     review_count: reviewCount,
     word_play_total: 0,
+    audio_available: true,
+    audio_status: 'ready',
+    audio_url: '/api/english/sentences/7/audio',
     review_round_item_completed: roundCompleted,
     review_round_completed: roundCompleted
   }
 }
+
+function roundSentence(id, completed = false) {
+  return {
+    ...sentenceRecord(0, completed),
+    id,
+    text: `Sentence ${id}.`,
+    audio_url: `/api/english/sentences/${id}/audio`,
+    review_round_position: id
+  }
+}
+
+test('completed round items stay hidden after paging or reloading the review queue', async () => {
+  const originals = {
+    stats: englishApi.stats,
+    heatmap: englishApi.heatmap,
+    sentences: englishApi.sentences
+  }
+  const requests = []
+  const statsRequests = []
+  let heatmapRequests = 0
+
+  englishApi.stats = async params => {
+    statsRequests.push(params)
+    return { active: 4 }
+  }
+  englishApi.heatmap = async () => {
+    heatmapRequests += 1
+    return { days: [] }
+  }
+  englishApi.sentences = async params => {
+    requests.push(params)
+    if (Number(params.page) === 2) {
+      return {
+        items: [roundSentence(3, true), roundSentence(4, false)],
+        total: 4,
+        page: 2,
+        review_round: { id: 9, completed: 2, total: 4, remaining: 2 }
+      }
+    }
+    return {
+      items: [roundSentence(1, true), roundSentence(2, false)],
+      total: 4,
+      page: 1,
+      review_round: { id: 9, completed: 1, total: 4, remaining: 3 }
+    }
+  }
+
+  try {
+    const list = useEnglishSentenceList({ isReview: () => true })
+    await list.load()
+    assert.deepEqual(list.sentences.value.map(item => item.id), [2])
+
+    list.page.value = 2
+    await list.load()
+    assert.deepEqual(list.sentences.value.map(item => item.id), [4])
+    assert.equal(requests[0].roundQueue, true)
+    assert.equal(requests[0].resume, true)
+    assert.equal(requests[1].roundQueue, true)
+    assert.equal(requests[1].resume, false)
+    assert.equal(heatmapRequests, 0)
+    assert.equal(statsRequests.every(params => params.includeWordNetwork === false), true)
+  } finally {
+    Object.assign(englishApi, originals)
+  }
+})
+
+test('an exhausted review page automatically resumes at the first unfinished page', async () => {
+  const originals = {
+    stats: englishApi.stats,
+    sentences: englishApi.sentences
+  }
+  const requests = []
+  let pageOneCompleted = false
+
+  englishApi.stats = async () => ({ active: 4 })
+  englishApi.sentences = async params => {
+    requests.push(params)
+    if (Number(params.page) === 2) {
+      return {
+        items: [roundSentence(3), roundSentence(4)],
+        total: 4,
+        page: 2,
+        review_round: { id: 9, completed: 2, total: 4, remaining: 2, resume_page: 2 }
+      }
+    }
+    return {
+      items: [roundSentence(1, pageOneCompleted), roundSentence(2, pageOneCompleted)],
+      total: 4,
+      page: 1,
+      review_round: {
+        id: 9,
+        completed: pageOneCompleted ? 2 : 0,
+        total: 4,
+        remaining: pageOneCompleted ? 2 : 4,
+        resume_page: pageOneCompleted ? 2 : 1
+      }
+    }
+  }
+
+  try {
+    const list = useEnglishSentenceList({ isReview: () => true })
+    await list.load()
+    assert.deepEqual(list.sentences.value.map(item => item.id), [1, 2])
+
+    pageOneCompleted = true
+    await list.load()
+
+    assert.deepEqual(list.sentences.value.map(item => item.id), [3, 4])
+    assert.equal(list.page.value, 2)
+    assert.deepEqual(requests.slice(1).map(request => [request.page, request.resume]), [
+      [1, false],
+      [2, false]
+    ])
+  } finally {
+    Object.assign(englishApi, originals)
+  }
+})
+
+test('the heatmap is loaded only on the statistics page', async () => {
+  const originals = {
+    stats: englishApi.stats,
+    heatmap: englishApi.heatmap,
+    sentences: englishApi.sentences
+  }
+  let statsRequests = 0
+  let statsParams
+  let heatmapRequests = 0
+  let sentenceRequests = 0
+
+  englishApi.stats = async params => {
+    statsRequests += 1
+    statsParams = params
+    return { active: 4 }
+  }
+  englishApi.heatmap = async () => {
+    heatmapRequests += 1
+    return { days: [], window_days: 119 }
+  }
+  englishApi.sentences = async () => {
+    sentenceRequests += 1
+    return { items: [], total: 0, page: 1 }
+  }
+
+  try {
+    const list = useEnglishSentenceList({ isStats: () => true })
+    await list.load()
+
+    assert.equal(statsRequests, 1)
+    assert.equal(statsParams.includeWordNetwork, true)
+    assert.equal(heatmapRequests, 1)
+    assert.equal(sentenceRequests, 0)
+    assert.equal(list.heatmap.value.window_days, 119)
+  } finally {
+    Object.assign(englishApi, originals)
+  }
+})
+
+test('sentence creation failures remain visible to the user', async () => {
+  const originalCreateSentence = englishApi.createSentence
+  englishApi.createSentence = async () => {
+    throw new Error('服务暂时不可用')
+  }
+
+  try {
+    const list = useEnglishSentenceList()
+    list.draft.value.text = 'A sentence that should remain in the editor.'
+    await list.createSentence()
+
+    assert.equal(list.error.value, '服务暂时不可用')
+    assert.equal(list.draft.value.text, 'A sentence that should remain in the editor.')
+    assert.equal(list.saving.value, false)
+  } finally {
+    englishApi.createSentence = originalCreateSentence
+  }
+})
 
 test('manual review and natural audio completion are serialized additive events', async () => {
   const originals = {
@@ -31,8 +209,13 @@ test('manual review and natural audio completion are serialized additive events'
   const calls = []
   let inFlight = 0
   let maxInFlight = 0
+  let statsRequests = 0
 
-  englishApi.stats = async () => ({ active: 1 })
+  englishApi.stats = async () => {
+    statsRequests += 1
+    if (statsRequests > 1) throw new Error('统计暂时不可用')
+    return { active: 1 }
+  }
   englishApi.heatmap = async () => ({ days: [] })
   englishApi.sentences = async () => ({
     items: [sentenceRecord()],
@@ -174,6 +357,129 @@ test('a sentence save response preserves edits made after the request started', 
   }
 })
 
+test('editing sentence text reports that sentence audio will regenerate automatically', async () => {
+  const originals = {
+    stats: englishApi.stats,
+    heatmap: englishApi.heatmap,
+    sentences: englishApi.sentences,
+    updateSentence: englishApi.updateSentence
+  }
+  const initial = {
+    ...sentenceRecord(),
+    text: 'Inline note [remove this] remains.',
+    sentence_translation: '译文仍然有效',
+    word_translations: {},
+    word_tips: {},
+    sentence_segments: [],
+    translation_segments: []
+  }
+  let submittedPayload
+  let audioRefreshes = 0
+  englishApi.stats = async () => ({ active: 1 })
+  englishApi.heatmap = async () => ({ days: [] })
+  englishApi.sentences = async () => ({ items: [initial], total: 1, page: 1 })
+  englishApi.updateSentence = async (_sentenceId, payload) => {
+    submittedPayload = payload
+    return {
+      ...initial,
+      text: payload.text,
+      audio_available: false,
+      audio_url: '',
+      audio_status: 'pending',
+      audio_needs_regeneration: true
+    }
+  }
+
+  try {
+    const list = useEnglishSentenceList({
+      audioControls: () => ({
+        scheduleAudioStatusRefresh: () => { audioRefreshes += 1 }
+      })
+    })
+    await list.load()
+    const sentence = list.sentences.value[0]
+    list.toggleEditor(sentence)
+    sentence.ui.editDraft.text = 'Inline note remains.'
+    await list.saveSentence(sentence)
+
+    const refreshed = list.sentences.value[0]
+    assert.equal(submittedPayload.text, 'Inline note remains.')
+    assert.equal(refreshed.ui.showEditor, false)
+    assert.match(refreshed.ui.message, /音频已进入重新生成队列/)
+    assert.equal(refreshed.audio_status, 'pending')
+    assert.equal(audioRefreshes, 1)
+  } finally {
+    Object.assign(englishApi, originals)
+  }
+})
+
+test('editing a review sentence removes it without scheduling an automatic refresh', async () => {
+  const originals = {
+    stats: englishApi.stats,
+    sentences: englishApi.sentences,
+    updateSentence: englishApi.updateSentence
+  }
+  const initial = {
+    ...roundSentence(7),
+    text: 'Inline note [remove this] remains.',
+    sentence_translation: '译文仍然有效',
+    word_translations: {},
+    word_tips: {},
+    sentence_segments: [],
+    translation_segments: []
+  }
+  let audioRefreshes = 0
+  const disposedIds = []
+  englishApi.stats = async () => ({ active: 1 })
+  englishApi.sentences = async () => ({
+    items: [initial],
+    total: 1,
+    page: 1,
+    review_round: {
+      id: 3,
+      completed: 0,
+      total: 1,
+      remaining: 1,
+      available: 1,
+      available_remaining: 1,
+      resume_page: 1
+    }
+  })
+  englishApi.updateSentence = async (_sentenceId, payload) => ({
+    ...initial,
+    text: payload.text,
+    audio_available: false,
+    audio_url: '',
+    audio_status: 'pending',
+    audio_needs_regeneration: true
+  })
+
+  try {
+    const list = useEnglishSentenceList({
+      isReview: () => true,
+      audioControls: () => ({
+        disposeSentenceCaches: items => disposedIds.push(...items.map(item => item.id)),
+        scheduleAudioStatusRefresh: () => { audioRefreshes += 1 }
+      })
+    })
+    await list.load()
+    const sentence = list.sentences.value[0]
+    list.toggleEditor(sentence)
+    sentence.ui.editDraft.text = 'Inline note remains.'
+    await list.saveSentence(sentence)
+
+    assert.deepEqual(list.sentences.value, [])
+    assert.deepEqual(disposedIds, [7])
+    assert.equal(audioRefreshes, 0)
+    assert.equal(list.total.value, 0)
+    assert.equal(list.reviewRound.value.remaining, 1)
+    assert.equal(list.reviewRound.value.available, 0)
+    assert.equal(list.reviewRound.value.available_remaining, 0)
+  } finally {
+    Object.assign(englishApi, originals)
+  }
+})
+
 test('a passage save response preserves edits made after the request started', async () => {
   const originalUpdatePassage = englishApi.updatePassage
   const originalWarn = console.warn
@@ -228,6 +534,66 @@ test('a passage save response preserves edits made after the request started', a
     englishApi.updatePassage = originalUpdatePassage
     console.warn = originalWarn
   }
+})
+
+test('passage information edits are included in autosave protection', async () => {
+  const originalUpdatePassage = englishApi.updatePassage
+  let submittedPayload
+  englishApi.updatePassage = async (_passageId, payload) => {
+    submittedPayload = payload
+    return {
+      id: 9,
+      title: payload.title,
+      source_label: payload.source_label,
+      source_url: payload.source_url,
+      year: payload.year,
+      exam_type: payload.exam_type,
+      passage_type: payload.passage_type,
+      body_text: payload.body_text,
+      status: payload.status
+    }
+  }
+
+  try {
+    const editor = usePassageEditor()
+    editor.activePassage.value = {
+      id: 9,
+      title: 'Original title',
+      body_text: 'Original body',
+      status: 'reading'
+    }
+    editor.passageForm.value = {
+      id: 9,
+      title: 'Updated title',
+      sourceLabel: '考研真题',
+      sourceUrl: '',
+      year: '2026',
+      examType: 'english1',
+      passageType: 'reading_a',
+      bodyText: 'Original body',
+      status: 'reading'
+    }
+
+    editor.handlePassageFormInput()
+    assert.equal(editor.passageDirty.value, true)
+    assert.equal(await editor.flushPassageAutosave(), true)
+    assert.equal(submittedPayload.title, 'Updated title')
+    assert.equal(submittedPayload.year, 2026)
+    assert.equal(editor.passageDirty.value, false)
+  } finally {
+    englishApi.updatePassage = originalUpdatePassage
+  }
+})
+
+test('an unsaved new passage cannot be silently discarded by navigation', async () => {
+  const editor = usePassageEditor()
+  editor.passageForm.value.bodyText = 'A new passage draft.'
+  editor.handlePassageFormInput({ bodyText: true })
+
+  assert.equal(editor.passageDirty.value, true)
+  assert.equal(await editor.flushPassageAutosave(), false)
+  assert.equal(editor.passageDirty.value, true)
+  assert.match(editor.passageError.value, /尚未保存/)
 })
 
 test('passage flush waits for the active autosave request', async () => {

@@ -8,7 +8,7 @@ sources:
   - .env.example
   - start-dev.sh
   - deploy.sh
-source_fingerprint: ca5d72dffdbad9c3bda255dc2e5a9a6b23bb50f98f5faa5c2d2b8ff38ee2e4cc
+source_fingerprint: 030e6496a590814a1b0bbf966bf655cf968fa1dcca7b0ba66d9c300a17443618
 ---
 
 # English Project Memory

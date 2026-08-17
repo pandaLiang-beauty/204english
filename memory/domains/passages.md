@@ -17,7 +17,7 @@ sources:
   - frontend/src/english/RichMarkedTextEditor.vue
   - backend/scripts/english/import_english_kaoyan_passages.py
   - backend/scripts/english/reliability_check.py
-source_fingerprint: b0c62c40f572aa3af64dde714b98e951a38194be3e79f1d962726263db280fe2
+source_fingerprint: 98161072ea0a34818099d6ad48de8e2c711929781d2187dec9506b77b9fe86f8
 ---
 
 # Passage Training
@@ -32,9 +32,9 @@ source_fingerprint: b0c62c40f572aa3af64dde714b98e951a38194be3e79f1d962726263db28
 
 ## 编辑与保存
 
-`usePassageEditor.js` 管理 contenteditable 标注和 900ms 自动保存。失败时保留 dirty 状态与本地正文。
+`usePassageEditor.js` 管理 contenteditable 标注、文章信息表单和 900ms 自动保存。失败时保留 dirty 状态与本地正文；已有文章的标题、来源、类型和原始正文修改必须与标注走同一保护链。
 
-`EnglishFlow` 暴露 `flushPendingChanges` 和 dirty 状态；`StudyApp` 在路由切换和退出前等待 flush，失败则停留。浏览器关闭时 dirty 状态触发原生离开确认。卸载钩子中的 best-effort flush 不是主数据保护路径。
+`EnglishFlow` 暴露 `flushPendingChanges` 和 dirty 状态；`StudyApp` 在路由切换和退出前等待 flush，失败则停留。未保存的新文章不能自动写入，站内离开时要求显式确认放弃，浏览器关闭时 dirty 状态触发原生离开确认。卸载钩子中的 best-effort flush 不是主数据保护路径。
 
 ## 同步到句子库
 
@@ -44,5 +44,6 @@ source_fingerprint: b0c62c40f572aa3af64dde714b98e951a38194be3e79f1d962726263db28
 
 - 用户隔离、候选去重、复用计数和软删除边界。
 - 切换文章、筛选、翻页、完成、路由或退出前等待保存。
+- 文章信息表单修改不能静默丢失；新文章草稿只能在保存或确认放弃后离开。
 - 今天完成项继续出现在当日选择中。
 - 导入公开 PDF 时先 dry-run 和抽样，不覆盖已标注正文。

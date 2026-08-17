@@ -1,7 +1,12 @@
 import { request } from '../platform/http.js'
 
 export const englishApi = {
-  stats: () => request('/api/english/stats'),
+  stats: (params = {}) => {
+    const search = new URLSearchParams()
+    if (params?.includeWordNetwork === false) search.set('include_word_network', 'false')
+    const suffix = search.toString()
+    return request(`/api/english/stats${suffix ? `?${suffix}` : ''}`)
+  },
   audioSettings: () => request('/api/english/audio/settings'),
   updateAudioSettings: payload => request('/api/english/audio/settings', {
     method: 'PUT',

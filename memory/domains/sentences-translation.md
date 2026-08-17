@@ -15,7 +15,7 @@ sources:
   - frontend/src/english/useEnglishSentenceList.js
   - frontend/src/english/SentenceEditor.vue
   - backend/scripts/english/reliability_check.py
-source_fingerprint: b1405cadf18912892be72417b4ef2fb2401665302113e77266b0fd5682247e47
+source_fingerprint: 24323eeaf20c4483221368db6e09603f83d6086ef427ec202de142c89d26e209
 ---
 
 # Sentences And Translation
@@ -25,6 +25,8 @@ source_fingerprint: b1405cadf18912892be72417b4ef2fb2401665302113e77266b0fd568224
 句子库以 `english_sentences` 为核心。`text` 用 Markdown `**word**` 标记重点词；翻译、提示、播放次数和双语分块存为 JSON TEXT。序列化集中在 `repository.serialize_sentence`。
 
 句子身份由去除加粗、统一引号/空白并 casefold 后的文本决定。有效身份唯一；创建和批量导入遇到同身份时复用记录并合并重点词，编辑冲突返回 409。
+
+创建和更新都拒绝 trim 后为空的正文；软删除记录不能再通过更新接口恢复或改写。单词播放事件只接受当前句子实际加粗的重点词，避免累计和事件事实被任意 URL 参数污染。
 
 ## 写入数据流
 
@@ -42,7 +44,7 @@ API payload
 
 ## 翻译管线
 
-English translator 直接读取 `STUDY_ENGLISH_AI_*`，缺省时回退 `STUDY_AI_*`；没有浏览器请求级 task profile 或图片模型选择。
+English translator 直接读取 `STUDY_ENGLISH_AI_*`，缺省时回退 `STUDY_AI_*`；没有浏览器请求级 task profile 或图片模型选择。温度、输出长度和超时配置解析失败时转换为受控 `AIProviderError`，不能裸抛配置异常。
 
 主流程先生成整句翻译、英中分块和重点词释义，再由第二次模型调用 review/repair。本地质量闸门只接受结构与语义规则通过的候选。
 
@@ -56,4 +58,5 @@ English translator 直接读取 `STUDY_ENGLISH_AI_*`，缺省时回退 `STUDY_AI
 - 重点词 key 规范化比较，响应保留适合显示的 surface。
 - 原文变化同时影响翻译身份和 [音频身份](audio.md)。
 - AI 未配置或输出不合格时保留 pending/原数据，不能写半结构化结果。
+- 空正文、已删除句写入和非重点词播放必须在业务边界被拒绝。
 - Reliability 至少覆盖成功、provider 失败、质量拒绝、旧写回和并发 map 更新。

@@ -6,8 +6,22 @@
           <div class="min-w-0">
             <div class="text-xs font-medium text-muted">英语 · {{ modeLabel }}</div>
             <h1 class="mt-1 text-xl font-semibold tracking-normal text-text">{{ pageTitle }}</h1>
-            <div v-if="isReview && reviewRound" class="mt-1 text-xs tabular-nums text-muted">
-              本轮 {{ reviewRound.completed || 0 }} / {{ reviewRound.total || 0 }}
+            <div v-if="isReview" class="mt-2 max-w-2xl">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted">
+                <span v-if="reviewRound">
+                  本轮 <span class="font-semibold text-text">{{ reviewRound.completed || 0 }} / {{ reviewRound.total || 0 }}</span>
+                </span>
+                <span v-if="reviewRound">剩余 {{ reviewRound.remaining || 0 }}</span>
+                <span>今日 {{ stats.today?.reviewed_sentences ?? 0 }} 句</span>
+                <span>整句 {{ stats.today?.sentence_reviews ?? 0 }} 次</span>
+                <span>单词 {{ stats.today?.word_reviews ?? 0 }} 次</span>
+              </div>
+              <div v-if="reviewRound" class="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
+                <div
+                  class="h-full rounded-full bg-primary transition-[width] duration-300"
+                  :style="{ width: `${reviewRoundProgressPercent}%` }"
+                />
+              </div>
             </div>
             <div v-if="isLibrary" class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-muted">
               <span>{{ stats.active ?? total }} 句</span>
@@ -17,24 +31,6 @@
           </div>
           <div class="flex flex-wrap items-center justify-end gap-2">
             <button
-              v-if="!isPassages"
-              type="button"
-              class="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition hover:opacity-90"
-              @click="$emit('goPassages')"
-            >
-              <BookMarked class="h-4 w-4" />
-              每日阅读
-            </button>
-            <button
-              v-else
-              type="button"
-              class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm text-muted transition hover:bg-surface-2 hover:text-text"
-              @click="$emit('goReview')"
-            >
-              <BookOpenCheck class="h-4 w-4" />
-              句子复习
-            </button>
-            <button
               type="button"
               class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm text-muted transition hover:bg-surface-2 hover:text-text"
               @click="load({ resumeRound: true })"
@@ -42,34 +38,6 @@
               <RefreshCw class="h-4 w-4" />
               刷新
             </button>
-          </div>
-        </div>
-
-        <div v-if="!isLibrary" class="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-          <div class="rounded-md border border-border bg-surface px-3 py-2">
-            <div class="text-[11px] text-muted">有效句子</div>
-            <div class="mt-1 flex flex-wrap items-baseline gap-x-1 font-semibold tabular-nums text-text">
-              <span>{{ stats.active ?? total }}</span>
-              <span class="text-[11px] font-normal text-muted">（今日已复习 {{ stats.today?.reviewed_sentences ?? 0 }} 句）</span>
-            </div>
-          </div>
-          <div class="rounded-md border border-border bg-surface px-3 py-2">
-            <div class="text-[11px] text-muted">累计整句</div>
-            <div class="mt-1 flex flex-wrap items-baseline gap-x-1 font-semibold tabular-nums text-text">
-              <span>{{ stats.sentence_reviews ?? '-' }}</span>
-              <span class="text-[11px] font-normal text-muted">（今日复习 {{ stats.today?.sentence_reviews ?? 0 }} 次）</span>
-            </div>
-          </div>
-          <div class="rounded-md border border-border bg-surface px-3 py-2">
-            <div class="text-[11px] text-muted">累计单词</div>
-            <div class="mt-1 flex flex-wrap items-baseline gap-x-1 font-semibold tabular-nums text-text">
-              <span>{{ stats.word_reviews ?? '-' }}</span>
-              <span class="text-[11px] font-normal text-muted">（今日复习 {{ stats.today?.word_reviews ?? 0 }} 次）</span>
-            </div>
-          </div>
-          <div class="rounded-md border border-border bg-surface px-3 py-2">
-            <div class="text-[11px] text-muted">连续天数</div>
-            <div class="mt-1 font-semibold tabular-nums text-text">{{ heatmap?.current_streak ?? 0 }}</div>
           </div>
         </div>
       </header>
@@ -671,11 +639,13 @@
                 :disabled="passageSaving"
                 class="h-9 rounded-md border border-border bg-bg px-3 text-sm outline-none transition focus:border-primary"
                 placeholder="标题，例如 2026 英语一 Text 1"
+                @input="handlePassageFormInput"
               />
               <select
                 v-model="passageForm.passageType"
                 :disabled="passageSaving"
                 class="h-9 rounded-md border border-border bg-bg px-2 text-sm outline-none transition focus:border-primary"
+                @change="handlePassageFormInput"
               >
                 <option value="custom">自建文章</option>
                 <option value="reading_a">阅读理解</option>
@@ -689,11 +659,13 @@
                 class="h-9 rounded-md border border-border bg-bg px-3 text-sm outline-none transition focus:border-primary"
                 inputmode="numeric"
                 placeholder="年份"
+                @input="handlePassageFormInput"
               />
               <select
                 v-model="passageForm.examType"
                 :disabled="passageSaving"
                 class="h-9 rounded-md border border-border bg-bg px-2 text-sm outline-none transition focus:border-primary"
+                @change="handlePassageFormInput"
               >
                 <option value="">类型</option>
                 <option value="english1">英语一</option>
@@ -706,12 +678,14 @@
                 :disabled="passageSaving"
                 class="h-9 rounded-md border border-border bg-bg px-3 text-sm outline-none transition focus:border-primary"
                 placeholder="来源标签，例如 考研真题"
+                @input="handlePassageFormInput"
               />
               <input
                 v-model="passageForm.sourceUrl"
                 :disabled="passageSaving"
                 class="h-9 rounded-md border border-border bg-bg px-3 text-sm outline-none transition focus:border-primary"
                 placeholder="来源链接，可留空"
+                @input="handlePassageFormInput"
               />
             </div>
             <textarea
@@ -719,6 +693,7 @@
               :disabled="passageSaving"
               class="mt-3 min-h-[18rem] w-full resize-y rounded-md border border-border bg-bg p-3 text-sm leading-6 outline-none transition focus:border-primary"
               placeholder="粘贴一篇考研英语文章原文"
+              @input="handlePassageFormInput({ bodyText: true })"
             />
           </section>
         </main>
@@ -831,13 +806,22 @@
         </aside>
       </section>
 
-      <div v-else class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div
+        v-else
+        :class="[
+          'grid gap-4',
+          isLibrary ? 'xl:grid-cols-[minmax(0,1fr)_340px]' : 'grid-cols-1'
+        ]"
+      >
         <main
           :class="[
             'mx-auto grid w-full min-w-0',
-            isLibrary ? 'max-w-none gap-3' : 'max-w-[980px] gap-4'
+            isLibrary ? 'max-w-none gap-3' : 'max-w-[1040px] gap-4'
           ]"
         >
+          <p v-if="isReview && error" class="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
+            {{ error }}
+          </p>
           <section v-if="isLibrary" class="overflow-hidden rounded-md border border-border bg-surface">
             <div class="hidden grid-cols-[72px_minmax(240px,1.5fr)_230px_minmax(150px,0.8fr)_minmax(170px,0.9fr)_76px] gap-3 border-b border-border bg-surface-2 px-3 py-2 text-[11px] font-medium text-muted xl:grid">
               <div>编号 / 次数</div>
@@ -1017,23 +1001,19 @@
             v-for="(sentence, index) in sentences"
             :key="sentence.id"
             :ref="el => setSentenceCardRef(sentence.id, el)"
+            data-review-keyboard-scope
             :class="sentenceCardClass(sentence, index)"
             @click="activateSentence(index)"
           >
             <div class="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-surface/80 px-4 py-3 md:px-5">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
-                  <h2 class="text-base font-semibold text-text">
-                    句子 #{{ sentence.id }}
-                    <span v-if="index === activeSentenceIndex && keyboardEnabled" class="ml-1 text-xs font-medium text-primary">当前</span>
+                  <h2 class="text-sm font-semibold text-text">
+                    {{ sentence.review_round_position ? `本轮第 ${sentence.review_round_position} 句` : '智能复习' }}
                   </h2>
-                  <span class="text-xs text-muted">
-                    整句 <span class="font-semibold tabular-nums text-text">{{ sentence.review_count }}</span>
-                  </span>
-                  <span class="text-xs text-muted">
-                    单词 <span class="font-semibold tabular-nums text-text">{{ sentence.word_play_total }}</span>
-                  </span>
+                  <span v-if="index === activeSentenceIndex && keyboardEnabled" class="text-xs font-medium text-primary">当前</span>
                   <span
+                    v-if="!sentence.audio_available || sentence.audio_status !== 'ready'"
                     class="text-xs"
                     :class="sentenceAudioStatusClass(sentence)"
                     :title="sentence.audio_error || ''"
@@ -1041,7 +1021,7 @@
                     {{ sentenceAudioStatusLabel(sentence) }}
                   </span>
                 </div>
-                <div class="mt-2 min-h-6">
+                <div v-if="sentence.ui.message || sentence.ui.status" class="mt-2">
                   <span v-if="sentence.ui.message" class="rounded-md bg-primary/10 px-2 py-1 text-xs text-primary">
                     {{ sentence.ui.message }}
                   </span>
@@ -1052,50 +1032,60 @@
               </div>
 
               <div class="flex flex-wrap justify-end gap-2">
-                <div v-if="sentence.audio_available && sentence.audio_url" class="grid justify-items-center gap-1">
-                  <button
-                    type="button"
-                    :class="sentenceAudioButtonClass(sentence)"
-                    :title="sentence.ui.audioPlaying ? '暂停整句' : '播放整句'"
-                    @click="toggleSentenceAudio(sentence)"
-                  >
-                    <Pause v-if="sentence.ui.audioPlaying" class="h-4 w-4" />
-                    <Play v-else class="h-4 w-4" />
-                    <span class="sr-only">{{ sentence.ui.audioPlaying ? '暂停整句' : '播放整句' }}</span>
-                  </button>
-                </div>
-                <div class="grid justify-items-center gap-1">
-                  <button
-                    type="button"
-                    class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm text-muted transition hover:bg-surface-2 hover:text-text"
-                    :aria-busy="sentence.ui.reviewing"
-                    @click="markReviewed(sentence)"
-                  >
-                    <Check class="h-4 w-4" />
-                    {{ sentence.ui.reviewPending ? `+1复习 · 待记 ${sentence.ui.reviewPending}` : '+1复习' }}
-                  </button>
-                </div>
+                <button
+                  v-if="sentence.audio_available && sentence.audio_url"
+                  type="button"
+                  class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm text-muted transition hover:bg-surface-2 hover:text-text"
+                  :class="sentence.ui.audioPlaying ? 'border-primary bg-primary/10 text-primary' : ''"
+                  :title="sentence.ui.audioPlaying ? '暂停整句（Space）' : '播放整句（Space）'"
+                  @click.stop="activateSentence(index); toggleSentenceAudio(sentence)"
+                >
+                  <Pause v-if="sentence.ui.audioPlaying" class="h-4 w-4" />
+                  <Play v-else class="h-4 w-4" />
+                  {{ sentence.ui.audioPlaying ? '暂停' : '播放' }}
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-60"
+                  :disabled="sentence.ui.reviewing"
+                  :aria-busy="sentence.ui.reviewing"
+                  :title="sentence.review_round_item_completed ? '进入下一句（Enter / J）' : '完成并进入下一句（Enter / J）'"
+                  @click.stop="reviewSentenceAndNext(index)"
+                >
+                  <Check class="h-4 w-4" />
+                  {{ sentence.ui.reviewing ? '记录中' : sentence.review_round_item_completed ? '下一句' : '完成并下一句' }}
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm text-muted transition hover:bg-surface-2 hover:text-text disabled:opacity-50"
+                  :disabled="!hasTranslationContent(sentence)"
+                  title="显示或隐藏翻译（T）"
+                  @click.stop="activateSentence(index); sentence.ui.showTranslation = !sentence.ui.showTranslation"
+                >
+                  <Eye class="h-4 w-4" />
+                  {{ sentence.ui.showTranslation ? '隐藏翻译' : '显示翻译' }}
+                </button>
                 <button
                   type="button"
                   class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm text-muted transition hover:bg-surface-2 hover:text-text"
-                  @click="toggleEditor(sentence)"
+                  :title="sentence.ui.showEditor ? '收起句子编辑' : '编辑句子并自动更新音频'"
+                  @click.stop="activateSentence(index); toggleEditor(sentence)"
                 >
                   <Pencil class="h-4 w-4" />
                   {{ sentence.ui.showEditor ? '收起编辑' : '编辑' }}
                 </button>
-                <button
-                  v-if="isLibrary"
-                  type="button"
-                  class="inline-flex h-9 items-center gap-1.5 rounded-md border border-danger/40 px-3 text-sm text-danger transition hover:bg-danger-soft"
-                  @click="deleteSentence(sentence)"
-                >
-                  <Trash2 class="h-4 w-4" />
-                  删除
-                </button>
               </div>
             </div>
 
-            <div v-if="sentence.ui.showEditor" class="mx-4 mt-4 rounded-md border border-border bg-surface p-3 md:mx-5">
+            <div
+              v-if="sentence.ui.showEditor"
+              data-review-keyboard-ignore
+              class="mx-4 mt-4 rounded-md border border-border bg-surface p-3 md:mx-5"
+              @click.stop="activateSentence(index)"
+            >
+              <p class="mb-3 text-xs leading-5 text-muted">
+                修改正文后保存，旧整句音频会立即失效，并按新正文自动重新生成；旧翻译若已不匹配也会自动更新。
+              </p>
               <SentenceEditor
                 :model-value="sentence.ui.editDraft"
                 :saving="sentence.ui.saving"
@@ -1119,18 +1109,6 @@
               </template>
             </div>
 
-            <div v-if="networkWords(sentence).length" class="flex flex-wrap gap-2 px-5 pb-5 md:px-8">
-              <span
-                v-for="word in networkWords(sentence)"
-                :key="word.key"
-                class="inline-flex items-center gap-1.5 rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-xs text-primary"
-              >
-                <span class="font-semibold">{{ word.surface || word.key }}</span>
-                <span class="text-muted">{{ word.linked_sentences }}句</span>
-                <span class="tabular-nums text-muted">{{ Math.round((word.weakness || 0) * 100) }}%</span>
-              </span>
-            </div>
-
             <audio
               v-if="sentence.audio_available && sentence.audio_url"
               :ref="el => setSentenceAudioRef(sentence.id, el)"
@@ -1142,22 +1120,14 @@
               @ended="handleSentenceAudioEnded(sentence)"
             />
 
-            <div class="grid gap-3 border-t border-border bg-surface/60 px-4 py-4 md:px-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <section class="rounded-md border border-border bg-bg p-3">
-                <div class="flex items-center justify-between gap-3">
-                  <h3 class="text-xs font-semibold text-muted">整句翻译</h3>
-                  <div class="grid justify-items-center gap-1">
-                    <button
-                      type="button"
-                      class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs text-muted transition hover:bg-bg hover:text-text disabled:opacity-50"
-                      :disabled="!hasTranslationContent(sentence)"
-                      @click="sentence.ui.showTranslation = !sentence.ui.showTranslation"
-                    >
-                      <Eye class="h-3.5 w-3.5" />
-                      {{ sentence.ui.showTranslation ? '隐藏' : '显示' }}
-                    </button>
-                  </div>
-                </div>
+            <div
+              :class="[
+                'grid gap-3 border-t border-border bg-surface/60 px-4 py-4 md:px-5',
+                sentence.ui.showTranslation ? 'lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]' : 'grid-cols-1'
+              ]"
+            >
+              <section v-if="sentence.ui.showTranslation" class="rounded-md border border-border bg-bg p-3">
+                <h3 class="text-xs font-semibold text-muted">整句翻译</h3>
                 <div v-if="sentence.ui.showTranslation && segmentPairs(sentence).length" class="sentence-segments mt-3 space-y-3">
                   <div class="sentence-segment-en text-sm leading-7 text-text">
                     <template v-for="(segment, index) in sentenceSegmentSources(sentence)" :key="`${sentence.id}-source-${index}`">
@@ -1175,7 +1145,6 @@
                 <div v-else-if="sentence.ui.showTranslation && sentence.sentence_translation" class="sentence-translation mt-2 whitespace-pre-wrap text-sm leading-6 text-text">
                   {{ sentence.sentence_translation }}
                 </div>
-                <div v-else class="mt-2 text-sm text-muted">未显示</div>
               </section>
 
               <section class="rounded-md border border-dashed border-border bg-bg p-3">
@@ -1193,7 +1162,6 @@
                       <span class="font-semibold">{{ entry.word }}</span>
                       <span class="text-muted"> = {{ entry.meaning || '未填释义' }}</span>
                       <span v-if="entry.tip" class="text-muted"> · {{ entry.tip }}</span>
-                      <span class="ml-1 text-xs text-muted tabular-nums">({{ entry.count }})</span>
                     </span>
                     <span class="grid shrink-0 justify-items-center gap-1">
                       <button
@@ -1218,7 +1186,16 @@
             加载中
           </div>
           <div v-else-if="!sentences.length" class="rounded-lg border border-border bg-surface p-6 text-center text-sm text-muted">
-            没有匹配的句子
+            {{
+              isReview
+                && reviewRound?.remaining
+                && reviewRound?.available_remaining != null
+                && Number(reviewRound.available_remaining) === 0
+                ? `当前没有音频就绪的句子，另有 ${reviewRound.remaining} 句等待音频；生成后请手动刷新`
+                : isReview && reviewRound?.remaining
+                  ? '本页句子已经完成，可前往下一页或刷新继续'
+                  : '没有匹配的句子'
+            }}
           </div>
 
           <nav class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-3 text-sm">
@@ -1233,8 +1210,10 @@
             </button>
             <div class="text-muted">
               第 <span class="font-semibold tabular-nums text-text">{{ page }}</span> /
-              <span class="font-semibold tabular-nums text-text">{{ pageCount }}</span> 页，
-              共 <span class="font-semibold tabular-nums text-text">{{ total }}</span> 条
+              <span class="font-semibold tabular-nums text-text">{{ pageCount }}</span> 页
+              <template v-if="isLibrary">
+                ，共 <span class="font-semibold tabular-nums text-text">{{ total }}</span> 条
+              </template>
             </div>
             <button
               type="button"
@@ -1248,7 +1227,7 @@
           </nav>
         </main>
 
-        <aside class="order-first grid content-start gap-4 xl:order-last xl:sticky xl:top-4">
+        <aside v-if="isLibrary" class="order-first grid content-start gap-4 xl:order-last xl:sticky xl:top-4">
           <section class="rounded-lg border border-border bg-surface p-4">
             <h2 class="text-sm font-semibold text-text">筛选</h2>
             <div class="mt-3 grid gap-2">
@@ -1297,32 +1276,7 @@
             <p v-if="error" class="mt-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{{ error }}</p>
           </section>
 
-          <section v-if="!isLibrary" class="rounded-lg border border-border bg-surface p-4">
-            <div class="flex items-center justify-between gap-2">
-              <h2 class="text-sm font-semibold text-text">复习热力</h2>
-              <span class="text-xs text-muted">近 {{ heatmap?.window_days ?? 119 }} 天</span>
-            </div>
-            <div class="mt-3 overflow-x-auto pb-1">
-              <div
-                class="grid grid-flow-col grid-rows-7 gap-1"
-                :style="{ gridTemplateColumns: `repeat(${heatmapColumns}, 0.75rem)` }"
-              >
-                <div
-                  v-for="(day, index) in heatmapCells"
-                  :key="day?.date || `rail-${index}`"
-                  :class="heatCellClass(day)"
-                  :title="heatCellTitle(day)"
-                />
-              </div>
-            </div>
-            <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
-              <span>活跃 {{ heatmap?.active_days ?? 0 }} 天</span>
-              <span>窗口 {{ heatmap?.total_reviews ?? 0 }} 次</span>
-              <span v-if="legacyReviewTotal">旧累计 {{ legacyReviewTotal }} 次</span>
-            </div>
-          </section>
-
-          <section v-if="isLibrary" class="rounded-lg border border-border bg-surface p-4">
+          <section class="rounded-lg border border-border bg-surface p-4">
             <div class="flex items-center justify-between gap-3">
               <h2 class="text-sm font-semibold text-text">新增</h2>
               <button
@@ -1392,8 +1346,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Bold,
-  BookMarked,
-  BookOpenCheck,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -1419,11 +1371,11 @@ import {
 import { useEnglishAudio } from './useEnglishAudio'
 import { usePassageEditor } from './usePassageEditor'
 import { useEnglishSentenceList } from './useEnglishSentenceList'
+import { keyboardShortcutForEvent } from './keyboardShortcuts'
 
 const props = defineProps({
   mode: { type: String, default: 'review' }
 })
-defineEmits(['goPassages', 'goReview'])
 
 
 const isLibrary = computed(() => props.mode === 'library')
@@ -1431,6 +1383,7 @@ const isCreate = computed(() => props.mode === 'create')
 const isStats = computed(() => props.mode === 'stats')
 const isPassages = computed(() => props.mode === 'passages')
 const isReview = computed(() => !isLibrary.value && !isCreate.value && !isStats.value && !isPassages.value)
+const needsAudioSettings = computed(() => isLibrary.value || isStats.value)
 const modeLabel = computed(() => {
   if (isPassages.value) return '阅读'
   if (isCreate.value) return '新增'
@@ -1445,15 +1398,12 @@ const pageTitle = computed(() => {
   if (isStats.value) return '复习统计'
   return '智能复习队列'
 })
-
 let passageControls
 let audioControls
-let desktopQuery = null
 let keyboardReviewPromise = null
 let voicePreviewAudio = null
 
 const activeSentenceIndex = ref(0)
-const desktopKeyboardAvailable = ref(false)
 const audioSettings = ref({ global: {}, voices: [], sentences: {} })
 const selectedGlobalVoice = ref('')
 const audioSettingsLoading = ref(false)
@@ -1496,10 +1446,8 @@ const edgeVoiceCount = computed(() => (
   (audioSettings.value.voices || []).filter(voice => voice.provider === 'edge').length
 ))
 const sentenceCardRefs = new Map()
-const FOCUS_WORD_KEY_INDEX = Object.freeze({ q: 0, e: 1, r: 2, f: 3, g: 4 })
 const keyboardEnabled = computed(() => (
-  desktopKeyboardAvailable.value
-  && !isCreate.value
+  !isCreate.value
   && !isStats.value
   && !isPassages.value
   && !isLibrary.value
@@ -1572,6 +1520,12 @@ const {
   }
 })
 
+const reviewRoundProgressPercent = computed(() => {
+  const totalItems = Number(reviewRound.value?.total || 0)
+  if (!totalItems) return 0
+  return Math.min(100, Math.max(0, Number(reviewRound.value?.completed || 0) / totalItems * 100))
+})
+
 function applyListDefaultsForMode() {
   if (isLibrary.value) {
     sort.value = 'id-desc'
@@ -1618,6 +1572,7 @@ const {
   examTypeLabel,
   passageTypeLabel,
   passageActionLabel,
+  handlePassageFormInput,
   togglePassageBold,
   handlePassageAnnotatorInput,
   handlePassageAnnotatorKeydown,
@@ -1643,7 +1598,7 @@ defineExpose({
 })
 
 audioControls = useEnglishAudio(sentences, {
-  shouldSkipStatusRefresh: () => isPassages.value || isStats.value,
+  shouldSkipStatusRefresh: () => isReview.value || isPassages.value || isStats.value,
   refreshAudioStatus: () => load(),
   updateSentenceInList,
   refreshActivity,
@@ -1719,6 +1674,13 @@ async function markActiveReviewedAndNext() {
   if (!sentence || sentence.ui.reviewing) return false
   const sentenceId = Number(sentence.id)
   const pendingReview = (async () => {
+    if (sentence.ui.audioPlaying) await toggleSentenceAudio(sentence)
+    if (sentence.review_round_item_completed) {
+      if (Number(activeSentence.value?.id) === sentenceId) {
+        await moveActiveSentence(1)
+      }
+      return true
+    }
     const updated = await markReviewed(sentence)
     if (!updated) return false
     if (updated.review_round_completed) {
@@ -1737,6 +1699,11 @@ async function markActiveReviewedAndNext() {
   } finally {
     if (keyboardReviewPromise === pendingReview) keyboardReviewPromise = null
   }
+}
+
+function reviewSentenceAndNext(index) {
+  activateSentence(index)
+  return markActiveReviewedAndNext()
 }
 
 function closeActiveSentencePanels() {
@@ -1761,61 +1728,17 @@ function playFocusWordAt(index) {
   playWord(sentence, entry.word)
 }
 
-function focusWordIndexForKey(key) {
-  if (/^[1-9]$/.test(key)) return Number(key) - 1
-  return FOCUS_WORD_KEY_INDEX[key] ?? -1
-}
-
-function isKeyboardInputTarget(target) {
-  const el = target instanceof Element ? target : null
-  if (!el) return false
-  const tag = el.tagName?.toLowerCase()
-  return (
-    tag === 'input'
-    || tag === 'textarea'
-    || tag === 'select'
-    || tag === 'button'
-    || tag === 'a'
-    || tag === 'summary'
-    || el.isContentEditable
-    || el.closest?.(
-      'input, textarea, select, button, a[href], summary, '
-      + '[contenteditable="true"], [role="textbox"], [role="button"], [role="link"], '
-      + '[role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"]'
-    )
-  )
-}
-
-function updateDesktopKeyboardAvailability() {
-  desktopKeyboardAvailable.value = Boolean(desktopQuery?.matches)
-}
-
 function handleEnglishKeyboard(event) {
-  if (!keyboardEnabled.value || event.defaultPrevented || isKeyboardInputTarget(event.target)) return
-  if (event.ctrlKey || event.metaKey || event.altKey) return
-  if (!sentences.value.length) return
+  if (!keyboardEnabled.value || !sentences.value.length) return
 
-  const key = String(event.key || '').toLowerCase()
-  const focusWordIndex = focusWordIndexForKey(key)
-  const isShortcut = (
-    event.code === 'Space'
-    || key === 'enter'
-    || key === 'j'
-    || key === 'arrowdown'
-    || key === 'arrowup'
-    || key === 's'
-    || key === 'w'
-    || key === 't'
-    || key === 'escape'
-    || focusWordIndex >= 0
-  )
-  if (!isShortcut || event.isComposing) return
+  const shortcut = keyboardShortcutForEvent(event)
+  if (!shortcut) return
   if (event.repeat || keyboardReviewPromise) {
     event.preventDefault()
     return
   }
 
-  if (event.code === 'Space') {
+  if (shortcut.action === 'toggle-audio') {
     event.preventDefault()
     if (activeSentence.value?.audio_available && activeSentence.value?.audio_url) {
       toggleSentenceAudio(activeSentence.value)
@@ -1823,58 +1746,35 @@ function handleEnglishKeyboard(event) {
     return
   }
 
-  if (key === 'enter' || key === 'j') {
+  if (shortcut.action === 'review-next') {
     event.preventDefault()
     void markActiveReviewedAndNext()
     return
   }
-  if (key === 'arrowdown' || key === 's') {
+  if (shortcut.action === 'move' && shortcut.delta > 0) {
     event.preventDefault()
     moveActiveSentence(1)
     return
   }
-  if (key === 'arrowup' || key === 'w') {
+  if (shortcut.action === 'move') {
     event.preventDefault()
     moveActiveSentence(-1)
     return
   }
-  if (key === 't') {
+  if (shortcut.action === 'toggle-translation') {
     event.preventDefault()
     toggleActiveTranslation()
     return
   }
-  if (key === 'escape') {
+  if (shortcut.action === 'close-panels') {
     event.preventDefault()
     closeActiveSentencePanels()
     return
   }
-  if (focusWordIndex >= 0) {
+  if (shortcut.action === 'play-word') {
     event.preventDefault()
-    playFocusWordAt(focusWordIndex)
+    playFocusWordAt(shortcut.index)
   }
-}
-
-function installDesktopKeyboardDetection() {
-  if (typeof window === 'undefined' || !window.matchMedia) return
-  desktopQuery = window.matchMedia('(min-width: 768px)')
-  updateDesktopKeyboardAvailability()
-  if (desktopQuery.addEventListener) {
-    desktopQuery.addEventListener('change', updateDesktopKeyboardAvailability)
-  } else {
-    desktopQuery.addListener?.(updateDesktopKeyboardAvailability)
-  }
-  window.addEventListener('resize', updateDesktopKeyboardAvailability)
-}
-
-function removeDesktopKeyboardDetection() {
-  if (!desktopQuery) return
-  if (desktopQuery.removeEventListener) {
-    desktopQuery.removeEventListener('change', updateDesktopKeyboardAvailability)
-  } else {
-    desktopQuery.removeListener?.(updateDesktopKeyboardAvailability)
-  }
-  window.removeEventListener('resize', updateDesktopKeyboardAvailability)
-  desktopQuery = null
 }
 
 function audioVoiceKey(provider, voice) {
@@ -2116,7 +2016,9 @@ watch(() => props.mode, async () => {
   resetForModeChange()
   activeSentenceIndex.value = 0
   applyListDefaultsForMode()
-  await Promise.all([load(), loadAudioSettings({ quiet: true })])
+  const tasks = [load()]
+  if (needsAudioSettings.value) tasks.push(loadAudioSettings({ quiet: true }))
+  await Promise.all(tasks)
 })
 
 watch(sentences, items => {
@@ -2130,16 +2032,14 @@ watch(sentences, items => {
 })
 
 onMounted(() => {
-  installDesktopKeyboardDetection()
   window.addEventListener('keydown', handleEnglishKeyboard)
   applyListDefaultsForMode()
   load()
-  loadAudioSettings()
+  if (needsAudioSettings.value) loadAudioSettings()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleEnglishKeyboard)
-  removeDesktopKeyboardDetection()
   stopVoicePreview()
   disposeAudioResources()
 })

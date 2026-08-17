@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter
 
 from ..platform.auth import get_current_user
@@ -36,6 +36,13 @@ class EnglishSentencePayload(BaseModel):
     sentence_translation: str = Field(default="", max_length=12000)
     sentence_segments: list[str] = Field(default_factory=list)
     translation_segments: list[str] = Field(default_factory=list)
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        if not str(value or "").strip():
+            raise ValueError("sentence text is required")
+        return value
 
 
 class EnglishSentenceBulkPayload(BaseModel):
@@ -84,8 +91,14 @@ class EnglishPassageSyncPayload(BaseModel):
 
 
 @router.get("/stats")
-def read_english_stats(user: dict = Depends(get_current_user)) -> dict:
-    return repository.stats(user_id=int(user["id"]))
+def read_english_stats(
+    include_word_network: bool = True,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    return repository.stats(
+        user_id=int(user["id"]),
+        include_word_network=include_word_network,
+    )
 
 
 @router.get("/heatmap")
@@ -397,14 +410,17 @@ def create_english_sentence(
     csrf: None = Depends(verify_write_origin),
 ) -> dict:
     _ = user, csrf
-    sentence = repository.create_sentence(
-        text=payload.text,
-        word_translations=payload.word_translations,
-        word_tips=payload.word_tips,
-        sentence_translation=payload.sentence_translation,
-        sentence_segments=payload.sentence_segments,
-        translation_segments=payload.translation_segments,
-    )
+    try:
+        sentence = repository.create_sentence(
+            text=payload.text,
+            word_translations=payload.word_translations,
+            word_tips=payload.word_tips,
+            sentence_translation=payload.sentence_translation,
+            sentence_segments=payload.sentence_segments,
+            translation_segments=payload.translation_segments,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if sentence.get("id"):
         sentence_id = int(sentence["id"])
         background_tasks.add_task(
@@ -475,15 +491,15 @@ def update_english_sentence(
         raise HTTPException(status_code=404, detail="句子不存在")
     if sentence.get("id"):
         updated_sentence_id = int(sentence["id"])
+        if sentence.get("audio_needs_regeneration"):
+            background_tasks.add_task(generate_sentence_audio_for_sentence_ids_best_effort, [updated_sentence_id])
+        if sentence.get("word_translations"):
+            background_tasks.add_task(generate_word_audio_for_sentence_ids_best_effort, [updated_sentence_id])
         background_tasks.add_task(
             translate_sentences_if_missing_best_effort,
             [updated_sentence_id],
             {updated_sentence_id: str(sentence.get("text") or "")},
         )
-        if sentence.get("word_translations"):
-            background_tasks.add_task(generate_word_audio_for_sentence_ids_best_effort, [updated_sentence_id])
-        if sentence.get("audio_needs_regeneration"):
-            background_tasks.add_task(generate_sentence_audio_for_sentence_ids_best_effort, [updated_sentence_id])
     return sentence
 
 

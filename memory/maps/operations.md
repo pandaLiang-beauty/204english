@@ -20,7 +20,7 @@ sources:
   - backend/scripts/reliability_check.py
   - backend/scripts/check_memory.py
   - backend/scripts/generate_memory_evidence.py
-source_fingerprint: 08a8c260293d35c9ab1736d0d8cf7a45f8c387de9da793584750391cac70a74f
+source_fingerprint: 3bf9b208c2992323cad8e778c2f4c683dca3d1a57fd3f4966118f2cf7d6136a2
 ---
 
 # Operations Map

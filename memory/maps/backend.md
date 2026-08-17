@@ -12,8 +12,10 @@ sources:
   - backend/app/platform/auth.py
   - backend/app/platform/db.py
   - backend/app/english/api.py
+  - backend/app/english/repository.py
+  - backend/app/english/review_rounds.py
   - backend/scripts/check_module_boundaries.py
-source_fingerprint: 9da6a09a0bdc66fc5b2e6a66459b23e3f9cc0da0016a95a6032aee10149bcb99
+source_fingerprint: fa42f5ea430aeda73929fc00856b473bc9d775b1c9c1be4dd7aee24309003065
 ---
 
 # Backend Map
@@ -34,7 +36,7 @@ app/main.py
 
 1. Platform HTTP 层处理 CORS、单密码登录、Session、写来源保护和登录失败限流。
 2. `app/english/api.py` 在 `/api/english` 下校验 payload、当前用户和写来源。
-3. 业务读写进入 English repository 或专用模块；翻译与音频的耗时生成使用后台任务。
+3. 业务读写进入 English repository 或专用模块；翻译与音频的耗时生成使用后台任务。正文更新需要重建音频时先排整句 TTS，再排重点词音频和翻译。复习页可请求不含跨句网络的轻量统计，完整排序仍独立计算网络。
 4. 翻译模型只由本仓库环境配置选择，不接受浏览器请求级图片模型或通用任务 profile。
 
 精确端点见 [API 证据](../evidence/api-map.md)。
@@ -53,6 +55,8 @@ app/main.py
 
 - 新增写路由必须同时依赖 `get_current_user` 和 `verify_write_origin`；登录、登出按认证语义组合。
 - AI provider 异常必须转换为受控用户消息，内部诊断只进日志。
+- API 和 repository 都要拒绝空句、已删除句更新及不属于当前重点词集合的播放写入。
 - 后台 best-effort 任务不能让已经成功的写请求失败，但必须留下可恢复状态。
+- 智能复习 round 只追加当前整句音频 ready 的句子；已有 item 音频失效时保留轮次位置和未完成状态，但从本次可用队列过滤。
 - 调整目录、依赖或部署拓扑前读取 [独立系统决策](../decisions/0001-standalone-system.md)。
 - API 或模块结构变化后重新生成 L3 证据并运行边界检查。

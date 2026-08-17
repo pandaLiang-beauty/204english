@@ -289,6 +289,19 @@ def _english_bool_env(name: str) -> bool | None:
     return value in {"1", "true", "yes", "on"}
 
 
+def _english_number_env(name: str, parser, *, user_label: str) -> Any | None:
+    value = os.getenv(name, "").strip()
+    if not value:
+        return None
+    try:
+        return parser(value)
+    except (TypeError, ValueError) as exc:
+        raise AIProviderError(
+            f"英语翻译 AI 配置无效，请检查{user_label}。",
+            f"English AI {name} is invalid: {exc}",
+        ) from exc
+
+
 def _english_ai_options() -> dict[str, Any]:
     base_url = os.getenv(f"{ENGLISH_AI_PREFIX}_BASE_URL", "").strip()
     api_key = os.getenv(f"{ENGLISH_AI_PREFIX}_API_KEY", "").strip()
@@ -308,17 +321,29 @@ def _english_ai_options() -> dict[str, Any]:
         if selected_model:
             options["model"] = selected_model
 
-    temperature = os.getenv(f"{ENGLISH_AI_PREFIX}_TEMPERATURE", "").strip()
-    if temperature:
-        options["temperature"] = float(temperature)
+    temperature = _english_number_env(
+        f"{ENGLISH_AI_PREFIX}_TEMPERATURE",
+        float,
+        user_label="温度参数",
+    )
+    if temperature is not None:
+        options["temperature"] = temperature
 
-    max_tokens = os.getenv(f"{ENGLISH_AI_PREFIX}_MAX_TOKENS", "").strip()
-    if max_tokens:
-        options["max_tokens"] = int(max_tokens)
+    max_tokens = _english_number_env(
+        f"{ENGLISH_AI_PREFIX}_MAX_TOKENS",
+        int,
+        user_label="输出长度参数",
+    )
+    if max_tokens is not None:
+        options["max_tokens"] = max_tokens
 
-    timeout = os.getenv(f"{ENGLISH_AI_PREFIX}_TIMEOUT_SECONDS", "").strip()
-    if timeout:
-        options["timeout_seconds"] = float(timeout)
+    timeout = _english_number_env(
+        f"{ENGLISH_AI_PREFIX}_TIMEOUT_SECONDS",
+        float,
+        user_label="超时参数",
+    )
+    if timeout is not None:
+        options["timeout_seconds"] = timeout
 
     disable_thinking = _english_bool_env(f"{ENGLISH_AI_PREFIX}_DISABLE_THINKING")
     if disable_thinking is not None:

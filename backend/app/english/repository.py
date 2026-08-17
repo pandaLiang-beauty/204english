@@ -805,11 +805,16 @@ def list_sentences(
         if user_id is not None and not search and not include_deleted:
             row_by_id = {int(row["id"]): row for row, _ in ranked_items}
             metrics_by_id = {int(row["id"]): metrics for row, metrics in ranked_items}
+            ready_sentence_ids = [
+                int(row["id"])
+                for row, _ in ranked_items
+                if _sentence_audio_is_current(row, settings=audio_settings)
+            ]
             with get_connection() as conn:
                 state = queue_state(
                     conn,
                     user_id=int(user_id),
-                    ordered_sentence_ids=[int(row["id"]) for row, _ in ranked_items],
+                    ordered_sentence_ids=ready_sentence_ids,
                     page=page,
                     page_size=page_size,
                     resume=resume,
@@ -1335,7 +1340,9 @@ def record_word_play(*, user_id: int, sentence_id: int, word: str) -> dict | Non
         data = dict(row)
         translations = _normalize_dict(data.get("word_translations_json"))
         counts = _normalize_dict(data.get("word_play_counts_json"))
-        key = _find_map_key_by_normalized(translations, _normalize_focus_word(clean_word)) or clean_word
+        key = _find_map_key_by_normalized(translations, _normalize_focus_word(clean_word))
+        if not key:
+            raise ValueError("word is not a focus word in this sentence")
         counts[key] = _safe_int(counts.get(key)) + 1
         word_total = _calculate_word_total(counts)
         conn.execute(
@@ -1369,6 +1376,8 @@ def create_sentence(
         word_tips or {},
         {},
     )
+    if not text:
+        raise ValueError("sentence text is required")
     audio_fields = _initial_sentence_audio_fields(text)
     with get_connection() as conn:
         begin_immediate(conn)
@@ -1505,11 +1514,16 @@ def update_sentence(
     audio_settings = get_sentence_audio_settings()
     with get_connection() as conn:
         begin_immediate(conn)
-        existing = conn.execute("SELECT * FROM english_sentences WHERE id = ?", (sentence_id,)).fetchone()
+        existing = conn.execute(
+            "SELECT * FROM english_sentences WHERE id = ? AND COALESCE(deleted_at, '') = ''",
+            (sentence_id,),
+        ).fetchone()
         if not existing:
             return None
         existing_data = dict(existing)
         incoming_text = str(text or "").strip()
+        if not incoming_text:
+            raise ValueError("sentence text is required")
         translation_source_changed = (
             sentence_translation_source_key(incoming_text)
             != sentence_translation_source_key(str(existing_data.get("text") or ""))

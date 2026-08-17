@@ -12,7 +12,7 @@ sources:
   - backend/app/english/schema.py
   - frontend/src/english/useEnglishAudio.js
   - backend/scripts/english/reliability_check.py
-source_fingerprint: 2e298e282fa012c291b3b24babb923dcfc9e164111a97d48aecc08b5a1d6e0c9
+source_fingerprint: 71c766208a94c7ec1aa471ea98c5fd72e9beff26284f8e995564ad2828bc15ab
 ---
 
 # Decision 0003: Content-Addressed Sentence Audio Identity

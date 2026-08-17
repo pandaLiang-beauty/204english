@@ -40,7 +40,7 @@ def _word_network_summary(rows: list[dict], *, limit: int = 8) -> dict:
     }
 
 
-def stats(*, user_id: int) -> dict:
+def stats(*, user_id: int, include_word_network: bool = True) -> dict:
     today = datetime.now(timezone.utc).date().isoformat()
     with get_connection() as conn:
         summary = conn.execute(
@@ -89,8 +89,12 @@ def stats(*, user_id: int) -> dict:
             """,
             (user_id,),
         ).fetchall()
-        active_rows = rows_to_dicts(
-            conn.execute("SELECT * FROM english_sentences WHERE COALESCE(deleted_at, '') = ''").fetchall()
+        active_rows = (
+            rows_to_dicts(
+                conn.execute("SELECT * FROM english_sentences WHERE COALESCE(deleted_at, '') = ''").fetchall()
+            )
+            if include_word_network
+            else []
         )
     today_counts = {str(row["event_type"]): int(row["count"]) for row in today_rows}
     all_event_counts = {str(row["event_type"]): int(row["count"]) for row in all_event_rows}
@@ -100,7 +104,7 @@ def stats(*, user_id: int) -> dict:
     tracked_word_reviews = all_event_counts.get("word_play", 0)
     legacy_sentence_reviews = max(0, sentence_reviews - tracked_sentence_reviews)
     legacy_word_reviews = max(0, word_reviews - tracked_word_reviews)
-    return {
+    result = {
         "total": int(summary["total"] or 0),
         "active": int(summary["active"] or 0),
         "with_audio": int(summary["with_audio"] or 0),
@@ -122,8 +126,10 @@ def stats(*, user_id: int) -> dict:
             "word_reviews": today_counts.get("word_play", 0),
             "focus_toggles": today_counts.get("focus_word_toggle", 0),
         },
-        "word_network": _word_network_summary(active_rows),
     }
+    if include_word_network:
+        result["word_network"] = _word_network_summary(active_rows)
+    return result
 
 
 def review_heatmap(*, user_id: int, days: int = 119) -> dict:
