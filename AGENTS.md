@@ -2,13 +2,13 @@
 
 ## 仓库边界
 
-- 本仓库 `/root/english` 是独立的单用户英语复习系统。
+- 本仓库 `/root/sysStuByAI/204english` 是独立的单用户英语复习系统。
 - Business backend code belongs in `backend/app/english/`.
 - Business frontend code belongs in `frontend/src/english/`.
 - Business scripts belong in `backend/scripts/english/`.
 - `platform/` is local infrastructure for this repository, never an external shared package.
 - `shell/` may compose only this repository's business adapters.
-- Never import from `/root/pro-study-platform`, `/root/math`, `/root/cs408`, or any legacy `/root/pro-study-platform-*` directory.
+- Never import from `/root/pro-study-platform`, `/root/sysStuByAI/302math`, `/root/sysStuByAI/408cs`, or any legacy `/root/pro-study-platform-*` directory.
 - Never add symlinks to code, data, environments, media, or configuration outside this repository.
 - Do not add another subject directory or system switcher.
 - Similar behavior in another system must be implemented and reviewed here independently.

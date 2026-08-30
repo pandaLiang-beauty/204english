@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="${STUDY_PROJECT_ROOT:-/root/english}"
+ROOT_DIR="${STUDY_PROJECT_ROOT:-/root/sysStuByAI/204english}"
 
 need_command() {
   command -v "$1" >/dev/null 2>&1

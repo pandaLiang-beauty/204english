@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="${STUDY_PROJECT_ROOT:-/root/english}"
+ROOT_DIR="${STUDY_PROJECT_ROOT:-/root/sysStuByAI/204english}"
 cd "$ROOT_DIR"
 
 if [[ -f "$ROOT_DIR/.env.local" ]]; then

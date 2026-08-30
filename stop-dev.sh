@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="${STUDY_PROJECT_ROOT:-/root/english}"
+ROOT_DIR="${STUDY_PROJECT_ROOT:-/root/sysStuByAI/204english}"
 BACKEND_PORT="${STUDY_BACKEND_PORT:-8103}"
 FRONTEND_PORT="${STUDY_FRONTEND_PORT:-5103}"
 

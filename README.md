@@ -1,6 +1,6 @@
 # 英语复习
 
-这是位于 `/root/english` 的单用户英语复习工具。简短架构说明见 [`docs/architecture.md`](docs/architecture.md)。
+这是位于 `/root/sysStuByAI/204english` 的单用户英语复习工具。简短架构说明见 [`docs/architecture.md`](docs/architecture.md)。
 
 ## 安装
 
