@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import runpy
 import sys
@@ -119,6 +120,45 @@ def check_malformed_ai_response_is_controlled() -> None:
         ai_transport.urlopen = original_urlopen
 
 
+def check_ai_transport_does_not_limit_output_tokens() -> None:
+    original_urlopen = ai_transport.urlopen
+    original_max_tokens = os.environ.get("STUDY_AI_MAX_TOKENS")
+    captured_payload: dict = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(request, **_kwargs):
+        captured_payload.update(json.loads(request.data.decode("utf-8")))
+        return FakeResponse()
+
+    try:
+        os.environ["STUDY_AI_MAX_TOKENS"] = "1200"
+        ai_transport.urlopen = fake_urlopen
+        result = ai_transport._chat_completion(
+            [{"role": "user", "content": "test"}],
+            model="test-model",
+            base_url="https://ai.example/v1",
+            api_key="test-key",
+            timeout_seconds=1,
+        )
+        assert result == "ok", result
+        assert "max_tokens" not in captured_payload, captured_payload
+    finally:
+        ai_transport.urlopen = original_urlopen
+        if original_max_tokens is None:
+            os.environ.pop("STUDY_AI_MAX_TOKENS", None)
+        else:
+            os.environ["STUDY_AI_MAX_TOKENS"] = original_max_tokens
+
+
 def check_login_rate_limit() -> None:
     assert LOGIN_MAX_FAILURES > 0, "login throttling must be enabled"
     username = "__reliability_check__"
@@ -176,6 +216,7 @@ CHECKS = (
     check_client_ip_trust,
     check_frontend_proxy_sanitizes_forwarded_headers,
     check_malformed_ai_response_is_controlled,
+    check_ai_transport_does_not_limit_output_tokens,
     check_login_rate_limit,
     check_public_cookie_security,
     check_minimal_sqlite_schema,

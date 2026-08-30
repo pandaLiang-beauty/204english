@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -12,10 +13,14 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.english import audio_generation, repository  # noqa: E402
+from app.english import audio_generation, repository, review_rounds  # noqa: E402
 from app.english import translation_generation  # noqa: E402
 from app.english import translator  # noqa: E402
-from app.english.ranking import sentence_word_network_metrics  # noqa: E402
+from app.english.ranking import (  # noqa: E402
+    build_review_schedule,
+    sentence_exposure_metrics,
+    sentence_word_network_metrics,
+)
 from app.english.schema import initialize_schema as initialize_english_schema  # noqa: E402
 from app.platform import db as platform_db  # noqa: E402
 from app.platform.db import get_connection, initialize_database  # noqa: E402
@@ -91,7 +96,7 @@ def check_sentence_integrity() -> None:
     assert lightweight_summary["today"] == summary["today"], lightweight_summary
     today = summary["today"]
     assert "reviewed_sentences" in today, today
-    assert int(today["reviewed_sentences"]) <= int(today["sentence_reviews"]), today
+    assert int(today["reviewed_sentences"]) <= int(today["sentence_completions"]), today
 
 
 def check_audio_assets() -> None:
@@ -146,10 +151,12 @@ def check_dedicated_ai_configuration() -> None:
         os.environ["STUDY_ENGLISH_AI_BASE_URL"] = "https://ai.example/v1"
         os.environ["STUDY_ENGLISH_AI_API_KEY"] = "test-key"
         os.environ["STUDY_ENGLISH_AI_MODEL"] = "provider/deepseek-v4-pro"
+        os.environ["STUDY_ENGLISH_AI_MAX_TOKENS"] = "1200"
         options = translator._english_ai_options()
         assert options["base_url"] == "https://ai.example/v1", options
         assert options["api_key"] == "test-key", options
         assert options["model"] == "provider/deepseek-v4-pro", options
+        assert "max_tokens" not in options, options
         os.environ["STUDY_ENGLISH_AI_TEMPERATURE"] = "not-a-number"
         try:
             translator._english_ai_options()
@@ -314,6 +321,49 @@ def check_edit_translation_invalidation() -> None:
                 "new": "本义：新的；句中：新的"
             }, refreshed
     finally:
+        platform_db.DB_PATH = original_path
+
+
+def check_startup_translation_recovery_scans_only_pending_sentences() -> None:
+    original_path = platform_db.DB_PATH
+    original_configured = translation_generation.translation_configured
+    original_translate_many = translation_generation.translate_sentences_if_missing_best_effort
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            platform_db.DB_PATH = Path(temp_dir) / "study.db"
+            initialize_database()
+            initialize_english_schema()
+            pending = repository.create_sentence(text="A **pending** sentence needs translation.")
+            complete = repository.create_sentence(
+                text="A **complete** sentence already has translation.",
+                word_translations={"complete": "本义：完整的；句中：完整的"},
+                sentence_translation="一个完整的句子已经有翻译。",
+                sentence_segments=["A complete sentence already has translation."],
+                translation_segments=["一个完整的句子已经有翻译。"],
+            )
+            deleted = repository.create_sentence(text="A deleted sentence needs translation.")
+            assert repository.delete_sentence(sentence_id=int(deleted["id"]))
+
+            captured: list[tuple[list[int], dict[int, str]]] = []
+
+            def fake_translate(sentence_ids, expected_texts=None):
+                captured.append((list(sentence_ids), dict(expected_texts or {})))
+
+            translation_generation.translation_configured = lambda: True
+            translation_generation.translate_sentences_if_missing_best_effort = fake_translate
+            translation_generation.resume_pending_translation_generation_best_effort()
+
+            assert captured == [
+                (
+                    [int(pending["id"])],
+                    {int(pending["id"]): "A **pending** sentence needs translation."},
+                )
+            ], captured
+            assert int(complete["id"]) not in captured[0][0]
+            assert int(deleted["id"]) not in captured[0][0]
+    finally:
+        translation_generation.translation_configured = original_configured
+        translation_generation.translate_sentences_if_missing_best_effort = original_translate_many
         platform_db.DB_PATH = original_path
 
 
@@ -520,7 +570,12 @@ def check_deleted_sentence_lifetime_stats() -> None:
                 )
             created = repository.create_sentence(text="A reviewed sentence may later be deleted.")
             sentence_id = int(created["id"])
-            repository.review_sentence(user_id=1, sentence_id=sentence_id, complete_round_item=False)
+            repository.review_sentence(
+                user_id=1,
+                sentence_id=sentence_id,
+                event_type="sentence_play",
+                complete_round_item=False,
+            )
             assert repository.delete_sentence(sentence_id=sentence_id)
             summary = repository.stats(user_id=1)
             heatmap = repository.review_heatmap(user_id=1, days=7)
@@ -530,6 +585,54 @@ def check_deleted_sentence_lifetime_stats() -> None:
             assert heatmap["legacy_sentence_reviews"] == 0, heatmap
     finally:
         platform_db.DB_PATH = original_path
+
+
+def check_audio_play_does_not_complete_review_item() -> None:
+    original_path = platform_db.DB_PATH
+    original_audio_dir = repository.ENGLISH_AUDIO_DIR
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            platform_db.DB_PATH = root / "study.db"
+            repository.ENGLISH_AUDIO_DIR = root / "audio"
+            initialize_database()
+            initialize_english_schema()
+            with get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO users(username, password_hash, display_name) VALUES ('admin', 'test', 'Admin')"
+                )
+
+            created = repository.create_sentence(text="Listening alone must not complete this sentence.")
+            sentence_id = int(created["id"])
+            _mark_sentence_audio_ready(sentence_id)
+            repository.list_sentences(user_id=1, sort="smart", page=1, page_size=20, resume=True)
+
+            played = repository.review_sentence(
+                user_id=1,
+                sentence_id=sentence_id,
+                event_type="sentence_play",
+                complete_round_item=True,
+            )
+            assert played and played["review_count"] == 1, played
+            assert played["review_round_item_completed"] is False, played
+            with get_connection() as conn:
+                round_item = conn.execute(
+                    "SELECT completed_at FROM english_review_round_items WHERE sentence_id = ?",
+                    (sentence_id,),
+                ).fetchone()
+            assert round_item and str(round_item["completed_at"] or "") == "", round_item
+
+            reviewed = repository.review_sentence(
+                user_id=1,
+                sentence_id=sentence_id,
+                event_type="sentence_review",
+            )
+            assert reviewed and reviewed["review_count"] == 1, reviewed
+            assert reviewed["completion_count"] == 1, reviewed
+            assert reviewed["review_round_item_completed"] is True, reviewed
+    finally:
+        platform_db.DB_PATH = original_path
+        repository.ENGLISH_AUDIO_DIR = original_audio_dir
 
 
 def check_sentence_write_boundaries() -> None:
@@ -576,7 +679,7 @@ def check_sentence_write_boundaries() -> None:
         platform_db.DB_PATH = original_path
 
 
-def check_review_queue_waits_for_ready_audio() -> None:
+def check_review_queue_includes_audio_optional_sentences_and_freezes_membership() -> None:
     original_path = platform_db.DB_PATH
     original_audio_dir = repository.ENGLISH_AUDIO_DIR
     try:
@@ -604,25 +707,6 @@ def check_review_queue_waits_for_ready_audio() -> None:
                     (int(missing["id"]),),
                 )
 
-            empty_queue = repository.list_sentences(
-                user_id=1,
-                sort="smart",
-                page=1,
-                page_size=20,
-                resume=True,
-            )
-            round_id = int(empty_queue["review_round"]["id"])
-            assert empty_queue["items"] == [], empty_queue
-            assert empty_queue["total"] == 0, empty_queue
-            assert empty_queue["review_round"]["available"] == 0, empty_queue
-            with get_connection() as conn:
-                item_count = conn.execute(
-                    "SELECT COUNT(*) AS count FROM english_review_round_items WHERE round_id = ?",
-                    (round_id,),
-                ).fetchone()["count"]
-            assert int(item_count) == 0, item_count
-
-            first_ready = _mark_sentence_audio_ready(int(pending["id"]))
             first_load = repository.list_sentences(
                 user_id=1,
                 sort="smart",
@@ -630,62 +714,250 @@ def check_review_queue_waits_for_ready_audio() -> None:
                 page_size=20,
                 resume=True,
             )
-            assert [int(item["id"]) for item in first_load["items"]] == [int(first_ready["id"])], first_load
-            assert first_load["review_round"]["id"] == round_id, first_load
-            assert first_load["review_round"]["total"] == 1, first_load
-            assert first_load["review_round"]["available_remaining"] == 1, first_load
+            round_id = int(first_load["review_round"]["id"])
+            assert {int(item["id"]) for item in first_load["items"]} == {
+                int(pending["id"]),
+                int(failed["id"]),
+                int(missing["id"]),
+            }, first_load
+            assert first_load["total"] == 3, first_load
+            assert first_load["review_round"]["available"] == 3, first_load
+            with get_connection() as conn:
+                item_count = conn.execute(
+                    "SELECT COUNT(*) AS count FROM english_review_round_items WHERE round_id = ?",
+                    (round_id,),
+                ).fetchone()["count"]
+            assert int(item_count) == 3, item_count
 
-            second_ready = _mark_sentence_audio_ready(int(failed["id"]))
-            second_load = repository.list_sentences(
-                user_id=1,
-                sort="smart",
-                page=1,
-                page_size=20,
-                resume=False,
-            )
-            assert [int(item["id"]) for item in second_load["items"]] == [
-                int(first_ready["id"]),
-                int(second_ready["id"]),
-            ], second_load
-            assert [int(item["review_round_position"]) for item in second_load["items"]] == [1, 2], second_load
-
-            changed = repository.update_sentence(
-                sentence_id=int(first_ready["id"]),
-                text="A corrected sentence must wait outside review until its new audio is ready.",
-            )
-            assert changed and changed["audio_status"] == "pending", changed
-            hidden_load = repository.list_sentences(
-                user_id=1,
-                sort="smart",
-                page=1,
-                page_size=20,
-                resume=False,
-            )
-            assert [int(item["id"]) for item in hidden_load["items"]] == [int(second_ready["id"])], hidden_load
-            assert hidden_load["review_round"]["total"] == 2, hidden_load
-            assert hidden_load["review_round"]["remaining"] == 2, hidden_load
-            assert hidden_load["review_round"]["available"] == 1, hidden_load
-            assert hidden_load["review_round"]["available_remaining"] == 1, hidden_load
-
-            regenerated = _mark_sentence_audio_ready(int(first_ready["id"]))
-            restored_load = repository.list_sentences(
+            later = repository.create_sentence(text="A new sentence waits for the next seven-day cycle.")
+            frozen_load = repository.list_sentences(
                 user_id=1,
                 sort="smart",
                 page=1,
                 page_size=20,
                 resume=True,
             )
-            assert [int(item["id"]) for item in restored_load["items"]] == [
-                int(regenerated["id"]),
-                int(second_ready["id"]),
-            ], restored_load
-            assert [int(item["review_round_position"]) for item in restored_load["items"]] == [1, 2], restored_load
-            assert restored_load["review_round"]["id"] == round_id, restored_load
-            assert all(
-                int(item["id"]) != int(missing["id"])
-                for item in restored_load["items"]
-            ), restored_load
+            assert frozen_load["review_round"]["id"] == round_id, frozen_load
+            assert frozen_load["total"] == 3, frozen_load
+            assert all(int(item["id"]) != int(later["id"]) for item in frozen_load["items"]), frozen_load
     finally:
+        platform_db.DB_PATH = original_path
+        repository.ENGLISH_AUDIO_DIR = original_audio_dir
+
+
+def check_exposure_formula_and_double_peak_repeats() -> None:
+    linked_rows = [
+        {
+            "id": 1,
+            "text": "**Echo** returns, and echo remains.",
+            "word_translations_json": json.dumps({"Echo": "回声"}),
+            "word_play_counts_json": json.dumps({"Echo": 3}),
+            "review_count": 0,
+            "word_play_total": 3,
+            "completion_count": 1,
+        },
+        {
+            "id": 2,
+            "text": "An echo fades.",
+            "word_translations_json": "{}",
+            "word_play_counts_json": "{}",
+            "review_count": 0,
+            "word_play_total": 0,
+            "completion_count": 1,
+        },
+    ]
+    linked = sentence_exposure_metrics(linked_rows)
+    assert linked[1]["word_exposure"] == linked[2]["word_exposure"] * 2, linked
+
+    peak_rows = [
+        {
+            "id": index + 1,
+            "text": f"Plain sentence {index}.",
+            "word_translations_json": "{}",
+            "word_play_counts_json": "{}",
+            "review_count": index,
+            "word_play_total": 0,
+            "completion_count": 1,
+        }
+        for index in range(5)
+    ]
+    peak = sentence_exposure_metrics(peak_rows)
+    assert [peak[index]["repeat_count"] for index in range(1, 6)] == [1, 7, 1, 7, 1], peak
+    ranked = [(row, {"score": 0}) for row in peak_rows]
+    schedule = build_review_schedule(ranked)
+    counts = {
+        sentence_id: sum(1 for item in schedule if int(item["sentence_id"]) == sentence_id)
+        for sentence_id in range(1, 6)
+    }
+    assert [counts[index] for index in range(1, 6)] == [1, 7, 1, 7, 1], counts
+    positions = [
+        index
+        for index, item in enumerate(schedule)
+        if int(item["sentence_id"]) == 2
+    ]
+    assert len(positions) == 7 and positions == sorted(positions), positions
+
+
+def check_repeated_items_complete_independently_and_wait_until_next_boundary() -> None:
+    original_path = platform_db.DB_PATH
+    original_now = review_rounds._utc_now
+    clock = [datetime(2026, 8, 21, 10, 0, tzinfo=timezone.utc)]
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            platform_db.DB_PATH = Path(temp_dir) / "study.db"
+            review_rounds._utc_now = lambda: clock[0]
+            initialize_database()
+            initialize_english_schema()
+            with get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO users(username, password_hash, display_name) VALUES ('admin', 'test', 'Admin')"
+                )
+            sentences = [repository.create_sentence(text=f"Review schedule sentence {index}.") for index in range(5)]
+            with get_connection() as conn:
+                # These sentences existed before the fixed 08:00 boundary;
+                # they belong to the first cycle's frozen snapshot.
+                conn.execute(
+                    "UPDATE english_sentences SET created_at = '2026-08-20T23:00:00+00:00'"
+                )
+                for index, sentence in enumerate(sentences):
+                    conn.execute(
+                        "UPDATE english_sentences SET review_count = ?, completion_count = 1 WHERE id = ?",
+                        (index, int(sentence["id"])),
+                    )
+
+            first = repository.list_sentences(user_id=1, sort="smart", page=1, page_size=200, resume=True)
+            round_id = int(first["review_round"]["id"])
+            assert first["review_round"]["total"] == 17, first["review_round"]
+            repeated = next(item for item in first["items"] if int(item["review_repeat_total"]) == 7)
+            same_sentence_items = [
+                item for item in first["items"] if int(item["id"]) == int(repeated["id"])
+            ]
+            assert len(same_sentence_items) == 7, same_sentence_items
+
+            completed = repository.review_sentence(
+                user_id=1,
+                sentence_id=int(repeated["id"]),
+                round_item_id=int(same_sentence_items[0]["review_round_item_id"]),
+            )
+            assert completed and completed["review_round_item_completed"] is True, completed
+            assert completed["review_count"] == int(repeated["review_count"]), completed
+            assert completed["completion_count"] == 2, completed
+            with get_connection() as conn:
+                remaining_same = conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM english_review_round_items
+                    WHERE round_id = ? AND sentence_id = ? AND COALESCE(completed_at, '') = ''
+                    """,
+                    (round_id, int(repeated["id"])),
+                ).fetchone()["count"]
+            assert int(remaining_same) == 6, remaining_same
+
+            with get_connection() as conn:
+                remaining = conn.execute(
+                    """
+                    SELECT id, sentence_id
+                    FROM english_review_round_items
+                    WHERE round_id = ? AND COALESCE(completed_at, '') = ''
+                    ORDER BY position
+                    """,
+                    (round_id,),
+                ).fetchall()
+            for item in remaining:
+                repository.review_sentence(
+                    user_id=1,
+                    sentence_id=int(item["sentence_id"]),
+                    round_item_id=int(item["id"]),
+                )
+
+            waiting = repository.list_sentences(user_id=1, sort="smart", page=1, page_size=200, resume=True)
+            assert int(waiting["review_round"]["id"]) == round_id, waiting["review_round"]
+            assert waiting["review_round"]["is_completed"] is True, waiting["review_round"]
+            assert waiting["review_round"]["next_round_at"] == "2026-08-22T00:00:00+00:00", waiting
+
+            clock[0] += timedelta(hours=14)
+            next_round = repository.list_sentences(user_id=1, sort="smart", page=1, page_size=200, resume=True)
+            assert int(next_round["review_round"]["id"]) != round_id, next_round["review_round"]
+            next_round_id = int(next_round["review_round"]["id"])
+            stale_item = next_round["items"][0]
+            clock[0] += timedelta(days=7)
+            expired = repository.review_sentence(
+                user_id=1,
+                sentence_id=int(stale_item["id"]),
+                round_item_id=int(stale_item["review_round_item_id"]),
+            )
+            assert expired and expired["review_round_expired"] is True, expired
+            refreshed = repository.list_sentences(user_id=1, sort="smart", page=1, page_size=200, resume=True)
+            assert int(refreshed["review_round"]["id"]) != next_round_id, refreshed["review_round"]
+    finally:
+        review_rounds._utc_now = original_now
+        platform_db.DB_PATH = original_path
+
+
+def check_review_rounds_use_fixed_boundaries_and_catch_up_without_request() -> None:
+    original_path = platform_db.DB_PATH
+    original_audio_dir = repository.ENGLISH_AUDIO_DIR
+    original_now = review_rounds._utc_now
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            platform_db.DB_PATH = root / "study.db"
+            repository.ENGLISH_AUDIO_DIR = root / "audio"
+            initialize_database()
+            initialize_english_schema()
+            with get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO users(username, password_hash, display_name) VALUES ('admin', 'test', 'Admin')"
+                )
+
+            first = repository.create_sentence(text="Fixed boundary sentence.")
+            first_time = datetime(2026, 8, 21, 2, 0, tzinfo=timezone.utc)
+            created = repository.advance_due_review_rounds(now=first_time)
+            assert created and created[0]["created"] is True, created
+            with get_connection() as conn:
+                round_row = conn.execute(
+                    "SELECT * FROM english_review_rounds WHERE status = 'active'"
+                ).fetchone()
+            assert round_row["started_at"] == "2026-08-21T00:00:00+00:00", round_row
+            assert round_row["expires_at"] == "2026-08-28T00:00:00+00:00", round_row
+
+            # No request is needed at the boundary: the scheduler entry point
+            # catches up and creates the next fixed cycle.
+            next_cycle = repository.advance_due_review_rounds(
+                now=datetime(2026, 8, 28, 0, 0, tzinfo=timezone.utc)
+            )
+            assert next_cycle and next_cycle[0]["round_id"] != int(round_row["id"]), next_cycle
+            with get_connection() as conn:
+                rounds = conn.execute(
+                    "SELECT * FROM english_review_rounds ORDER BY id"
+                ).fetchall()
+            assert rounds[-1]["started_at"] == "2026-08-28T00:00:00+00:00", rounds[-1]
+            assert rounds[-1]["expires_at"] == "2026-09-04T00:00:00+00:00", rounds[-1]
+
+            # A sentence added after the fixed boundary is deferred to the
+            # following cycle.
+            later = repository.create_sentence(text="Added after boundary.")
+            with get_connection() as conn:
+                conn.execute(
+                    "UPDATE english_sentences SET created_at = '2026-09-01T00:00:00+00:00' WHERE id = ?",
+                    (int(later["id"]),),
+                )
+                conn.execute(
+                    "UPDATE english_review_rounds SET expires_at = '2026-09-04T00:00:00+00:00' WHERE status = 'active'"
+                )
+            following = repository.advance_due_review_rounds(
+                now=datetime(2026, 9, 4, 0, 0, tzinfo=timezone.utc)
+            )
+            assert following and following[0]["created"] is True, following
+            with get_connection() as conn:
+                latest_id = int(conn.execute("SELECT MAX(id) FROM english_review_rounds").fetchone()[0])
+                included = conn.execute(
+                    "SELECT 1 FROM english_review_round_items WHERE round_id = ? AND sentence_id = ?",
+                    (latest_id, int(later["id"])),
+                ).fetchone()
+            assert included is not None, (latest_id, later)
+    finally:
+        review_rounds._utc_now = original_now
         platform_db.DB_PATH = original_path
         repository.ENGLISH_AUDIO_DIR = original_audio_dir
 
@@ -817,12 +1089,17 @@ CHECKS = (
     check_library_metadata,
     check_two_stage_translation_pipeline,
     check_edit_translation_invalidation,
+    check_startup_translation_recovery_scans_only_pending_sentences,
     check_audio_voice_settings,
     check_legacy_audio_metadata_reconciliation,
     check_focus_map_pruning_and_reconciliation,
     check_deleted_sentence_lifetime_stats,
+    check_audio_play_does_not_complete_review_item,
     check_sentence_write_boundaries,
-    check_review_queue_waits_for_ready_audio,
+    check_review_queue_includes_audio_optional_sentences_and_freezes_membership,
+    check_exposure_formula_and_double_peak_repeats,
+    check_repeated_items_complete_independently_and_wait_until_next_boundary,
+    check_review_rounds_use_fixed_boundaries_and_catch_up_without_request,
     check_sqlite_review_concurrency_and_stale_audio,
     check_today_passage_keeps_completed_items,
 )

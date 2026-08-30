@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS english_sentences (
     audio_error TEXT NOT NULL DEFAULT '',
     audio_generated_at TEXT NOT NULL DEFAULT '',
     review_count INTEGER NOT NULL DEFAULT 0,
+    completion_count INTEGER NOT NULL DEFAULT 0,
     word_play_total INTEGER NOT NULL DEFAULT 0,
     sentence_translation TEXT NOT NULL DEFAULT '',
     sentence_segments_json TEXT NOT NULL DEFAULT '[]',
@@ -84,10 +85,12 @@ CREATE TABLE IF NOT EXISTS english_review_round_items (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     sentence_id INTEGER NOT NULL REFERENCES english_sentences(id) ON DELETE CASCADE,
     position INTEGER NOT NULL,
+    repeat_index INTEGER NOT NULL DEFAULT 1,
+    repeat_total INTEGER NOT NULL DEFAULT 1,
+    exposure_score REAL NOT NULL DEFAULT 0,
     completed_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(round_id, sentence_id),
     UNIQUE(round_id, position)
 );
 
@@ -159,9 +162,119 @@ def _ensure_sentence_translation_columns(conn) -> None:
     _ensure_column(conn, "english_sentences", "translation_segments_json", "translation_segments_json TEXT NOT NULL DEFAULT '[]'")
 
 
+def _ensure_exposure_columns(conn) -> None:
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(english_sentences)").fetchall()
+    }
+    if "completion_count" in columns:
+        return
+
+    _ensure_column(
+        conn,
+        "english_sentences",
+        "completion_count",
+        "completion_count INTEGER NOT NULL DEFAULT 0",
+    )
+    conn.execute(
+        """
+        UPDATE english_sentences
+        SET completion_count = COALESCE((
+                SELECT COUNT(*)
+                FROM english_review_events events
+                WHERE events.sentence_id = english_sentences.id
+                  AND events.event_type = 'sentence_review'
+            ), 0),
+            review_count = MAX(
+                review_count - COALESCE((
+                    SELECT COUNT(*)
+                    FROM english_review_events events
+                    WHERE events.sentence_id = english_sentences.id
+                      AND events.event_type = 'sentence_review'
+                ), 0),
+                0
+            )
+        """
+    )
+
+
+def _review_items_allow_repeats(conn) -> bool:
+    for index in conn.execute("PRAGMA index_list(english_review_round_items)").fetchall():
+        if not int(index["unique"] or 0):
+            continue
+        columns = [
+            str(row["name"])
+            for row in conn.execute(f"PRAGMA index_info({index['name']})").fetchall()
+        ]
+        if columns == ["round_id", "sentence_id"]:
+            return False
+    return True
+
+
+def _ensure_repeatable_review_items(conn) -> None:
+    if _review_items_allow_repeats(conn):
+        _ensure_column(
+            conn,
+            "english_review_round_items",
+            "repeat_index",
+            "repeat_index INTEGER NOT NULL DEFAULT 1",
+        )
+        _ensure_column(
+            conn,
+            "english_review_round_items",
+            "repeat_total",
+            "repeat_total INTEGER NOT NULL DEFAULT 1",
+        )
+        _ensure_column(
+            conn,
+            "english_review_round_items",
+            "exposure_score",
+            "exposure_score REAL NOT NULL DEFAULT 0",
+        )
+        return
+
+    conn.executescript(
+        """
+        ALTER TABLE english_review_round_items RENAME TO english_review_round_items_legacy;
+
+        CREATE TABLE english_review_round_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            round_id INTEGER NOT NULL REFERENCES english_review_rounds(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            sentence_id INTEGER NOT NULL REFERENCES english_sentences(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            repeat_index INTEGER NOT NULL DEFAULT 1,
+            repeat_total INTEGER NOT NULL DEFAULT 1,
+            exposure_score REAL NOT NULL DEFAULT 0,
+            completed_at TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(round_id, position)
+        );
+
+        INSERT INTO english_review_round_items(
+            id, round_id, user_id, sentence_id, position,
+            repeat_index, repeat_total, exposure_score,
+            completed_at, created_at, updated_at
+        )
+        SELECT id, round_id, user_id, sentence_id, position,
+               1, 1, 0, completed_at, created_at, updated_at
+        FROM english_review_round_items_legacy;
+
+        DROP TABLE english_review_round_items_legacy;
+        CREATE INDEX idx_english_round_items_queue
+            ON english_review_round_items(round_id, position);
+        CREATE INDEX idx_english_round_items_completed
+            ON english_review_round_items(round_id, completed_at);
+        """
+    )
+
+
 def initialize_schema() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA_SQL)
+        _ensure_exposure_columns(conn)
+        _ensure_repeatable_review_items(conn)
         _ensure_sentence_audio_columns(conn)
         _ensure_sentence_translation_columns(conn)
         _ensure_passage_columns(conn)

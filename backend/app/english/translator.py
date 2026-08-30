@@ -102,7 +102,6 @@ def _repair_json_object(
     user_message: str,
     diagnostic_label: str,
     expected_schema: str,
-    max_tokens: int,
 ) -> dict[str, Any]:
     messages = [
         {
@@ -124,7 +123,6 @@ def _repair_json_object(
         },
     ]
     options = _english_ai_options()
-    options["max_tokens"] = max_tokens
     fixed = _chat_completion(messages, **options)
     parsed = _decode_json_object_from_text(fixed)
     if parsed is None:
@@ -329,14 +327,6 @@ def _english_ai_options() -> dict[str, Any]:
     if temperature is not None:
         options["temperature"] = temperature
 
-    max_tokens = _english_number_env(
-        f"{ENGLISH_AI_PREFIX}_MAX_TOKENS",
-        int,
-        user_label="输出长度参数",
-    )
-    if max_tokens is not None:
-        options["max_tokens"] = max_tokens
-
     timeout = _english_number_env(
         f"{ENGLISH_AI_PREFIX}_TIMEOUT_SECONDS",
         float,
@@ -362,7 +352,6 @@ def _json_from_chat(
     user_message: str,
     diagnostic_label: str,
     expected_schema: str,
-    max_tokens: int,
 ) -> dict[str, Any]:
     raw = _chat_completion(messages, **_english_ai_options())
     if not raw:
@@ -379,7 +368,6 @@ def _json_from_chat(
             user_message=user_message,
             diagnostic_label=diagnostic_label,
             expected_schema=expected_schema,
-            max_tokens=max_tokens,
         )
 
 
@@ -420,7 +408,6 @@ def _translate_sentence_only(sentence: str, *, feedback: str = "") -> str:
         user_message="AI 翻译返回格式异常，请重试。",
         diagnostic_label="sentence translation JSON",
         expected_schema='{"sentence_translation": "自然完整中文译文"}',
-        max_tokens=900,
     )
     translation = str(
         payload.get("sentence_translation")
@@ -474,7 +461,6 @@ def _translate_words_only(sentence: str, words: list[str], *, feedback: str = ""
         user_message="AI 词义返回格式异常，请重试。",
         diagnostic_label="word translation JSON",
         expected_schema='{"words":[{"word":"原词","base_translation":"本义","context_translation":"句中义","translation":"展示释义","tip":""}]}',
-        max_tokens=1100,
     )
     return _normalize_translation_payload(payload, words)
 
@@ -518,7 +504,6 @@ def _review_translation_result(sentence: str, result: dict[str, Any], words: lis
         user_message="AI 质量审查返回格式异常，请重试。",
         diagnostic_label="translation review JSON",
         expected_schema='{"ok": true, "issues": []}',
-        max_tokens=900,
     )
     ok = payload.get("ok")
     issues = payload.get("issues") if isinstance(payload.get("issues"), list) else []
@@ -830,7 +815,6 @@ def segment_translation(text: str, sentence_translation: str, *, feedback: str =
             user_message="AI 分块返回格式异常，请重试。",
             diagnostic_label="segment JSON",
             expected_schema='{"sentence_segments": ["英文阅读块"], "translation_segments": ["对应中文块"]}',
-            max_tokens=1200,
         )
     normalized = _normalize_translation_payload(payload, [])
     normalized["sentence_translation"] = translation

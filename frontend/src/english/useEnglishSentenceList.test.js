@@ -15,6 +15,7 @@ function sentenceRecord(reviewCount = 0, roundCompleted = false) {
     audio_available: true,
     audio_status: 'ready',
     audio_url: '/api/english/sentences/7/audio',
+    review_round_item_id: 700,
     review_round_item_completed: roundCompleted,
     review_round_completed: roundCompleted
   }
@@ -26,6 +27,7 @@ function roundSentence(id, completed = false) {
     id,
     text: `Sentence ${id}.`,
     audio_url: `/api/english/sentences/${id}/audio`,
+    review_round_item_id: 1000 + id,
     review_round_position: id
   }
 }
@@ -195,7 +197,7 @@ test('sentence creation failures remain visible to the user', async () => {
   }
 })
 
-test('manual review and natural audio completion are serialized additive events', async () => {
+test('manual completion and sentence-play exposure are serialized independently', async () => {
   const originals = {
     stats: englishApi.stats,
     heatmap: englishApi.heatmap,
@@ -230,19 +232,19 @@ test('manual review and natural audio completion are serialized additive events'
     maxInFlight = Math.max(maxInFlight, inFlight)
     if (callNumber === 1) await firstReviewGate
     inFlight -= 1
-    return sentenceRecord(callNumber, callNumber === 1)
+    return sentenceRecord(payload.event_type === 'sentence_play' ? 1 : 0, callNumber === 1)
   }
 
   try {
     const list = useEnglishSentenceList({ isReview: () => true })
     await list.load()
     const sentence = list.sentences.value[0]
-    const audio = useEnglishAudio(list.sentences, {
-      markReviewed: list.markReviewed
-    })
-
     const manualReview = list.markReviewed(sentence)
-    const audioReview = audio.handleSentenceAudioEnded(sentence)
+    const audioReview = list.markReviewed(sentence, {
+      eventType: 'sentence_play',
+      completeRound: false,
+      silentMessage: true
+    })
 
     await Promise.resolve()
     assert.equal(calls.length, 1)
@@ -255,9 +257,11 @@ test('manual review and natural audio completion are serialized additive events'
       'sentence_review',
       'sentence_play'
     ])
+    assert.deepEqual(calls.map(call => call.payload.complete_round_item), [true, false])
+    assert.deepEqual(calls.map(call => call.payload.round_item_id), [700, 700])
     assert.deepEqual(calls.map(call => call.sentenceId), [7, 7])
     assert.equal(maxInFlight, 1)
-    assert.equal(list.sentences.value[0].review_count, 2)
+    assert.equal(list.sentences.value[0].review_count, 1)
     assert.equal(list.sentences.value[0].review_round_item_completed, true)
     assert.equal(list.reviewRound.value.completed, 1)
     assert.equal(list.reviewRound.value.remaining, 0)
@@ -265,6 +269,71 @@ test('manual review and natural audio completion are serialized additive events'
     assert.equal(list.sentences.value[0].ui.reviewing, false)
   } finally {
     Object.assign(englishApi, originals)
+  }
+})
+
+test('sentence exposure is recorded at playback start and audio sources do not overlap', async () => {
+  const originalPlayWord = englishApi.playWord
+  const OriginalAudio = globalThis.Audio
+  const sentence = {
+    ...sentenceRecord(),
+    pronunciations: { focus: '/focus.mp3' },
+    ui: {
+      audioPlaying: false,
+      cachedAudioUrl: '',
+      pendingCachedAudioUrl: '',
+      wordAudioCache: {},
+      message: '',
+      status: '',
+      wordPlaying: ''
+    }
+  }
+  const exposures = []
+  let sentencePauses = 0
+  const sentenceAudio = {
+    currentTime: 0,
+    paused: false,
+    pause() {
+      sentencePauses += 1
+      this.paused = true
+    }
+  }
+  class FakeWordAudio {
+    addEventListener() {}
+    pause() {}
+    async play() {}
+  }
+  globalThis.Audio = FakeWordAudio
+  englishApi.playWord = async () => sentence
+
+  try {
+    const controls = useEnglishAudio({ value: [sentence] }, {
+      markReviewed: (_sentence, options) => {
+        exposures.push(options)
+        return Promise.resolve(sentence)
+      }
+    })
+    controls.setSentenceAudioRef(sentence, sentenceAudio)
+
+    controls.handleSentenceAudioPlay(sentence)
+    assert.equal(exposures.length, 1)
+    assert.equal(exposures[0].eventType, 'sentence_play')
+
+    sentenceAudio.currentTime = 2
+    controls.handleSentenceAudioPause(sentence)
+    controls.handleSentenceAudioPlay(sentence)
+    assert.equal(exposures.length, 1)
+
+    controls.handleSentenceAudioEnded(sentence)
+    sentenceAudio.currentTime = 0
+    controls.handleSentenceAudioPlay(sentence)
+    assert.equal(exposures.length, 2)
+
+    await controls.playWord(sentence, 'focus')
+    assert.equal(sentencePauses > 0, true)
+  } finally {
+    englishApi.playWord = originalPlayWord
+    globalThis.Audio = OriginalAudio
   }
 })
 
@@ -413,7 +482,7 @@ test('editing sentence text reports that sentence audio will regenerate automati
   }
 })
 
-test('editing a review sentence removes it without scheduling an automatic refresh', async () => {
+test('editing a review sentence keeps it available while audio regenerates', async () => {
   const originals = {
     stats: englishApi.stats,
     sentences: englishApi.sentences,
@@ -468,13 +537,14 @@ test('editing a review sentence removes it without scheduling an automatic refre
     sentence.ui.editDraft.text = 'Inline note remains.'
     await list.saveSentence(sentence)
 
-    assert.deepEqual(list.sentences.value, [])
-    assert.deepEqual(disposedIds, [7])
+    assert.equal(list.sentences.value.length, 1)
+    assert.equal(list.sentences.value[0].audio_status, 'pending')
+    assert.deepEqual(disposedIds, [])
     assert.equal(audioRefreshes, 0)
-    assert.equal(list.total.value, 0)
+    assert.equal(list.total.value, 1)
     assert.equal(list.reviewRound.value.remaining, 1)
-    assert.equal(list.reviewRound.value.available, 0)
-    assert.equal(list.reviewRound.value.available_remaining, 0)
+    assert.equal(list.reviewRound.value.available, 1)
+    assert.equal(list.reviewRound.value.available_remaining, 1)
   } finally {
     Object.assign(englishApi, originals)
   }

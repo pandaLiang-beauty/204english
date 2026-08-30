@@ -16,44 +16,48 @@
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --font-sans: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-serif: "Times New Roman", Times, "SimSun", "Songti SC", "STSong", "宋体", serif;
   --radius: 0.5rem;
 }
 
+/* 浅色＝暖灰纸面（与 408 卷面同一套色，替换原来的冷灰绿）。
+   只改这几个变量，全站组件不用动——组件里用的都是 bg-bg / text-text / border-border 这些 token。 */
 :root,
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f5f7f7;
-  --surface: #ffffff;
-  --surface-2: #edf1f0;
-  --border: #d5dddb;
-  --text: #202827;
-  --muted: #64716e;
-  --primary: #176b5b;
+  --bg: #e7e4dd;
+  --surface: #fdfdfb;
+  --surface-2: #f3f0ea;
+  --border: #ddd7cc;
+  --text: #1c1a17;
+  --muted: #6d675d;
+  --primary: #b04a2f;
   --primary-foreground: #ffffff;
-  --success: #2d7a4d;
-  --success-soft: #e1f1e7;
-  --warning: #986119;
-  --warning-soft: #f8ecd7;
-  --danger: #b33f4a;
-  --danger-soft: #f8e1e4;
+  --success: #2f7d47;
+  --success-soft: #e3f1e6;
+  --warning: #b8791d;
+  --warning-soft: #f6ecd7;
+  --danger: #c23b3b;
+  --danger-soft: #f7e3e2;
 }
 
+/* 深色＝暖褐，不是冷黑。主色提亮到 #d97757，否则朱红在深底上对比不足。 */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #151918;
-  --surface: #1e2422;
-  --surface-2: #29312e;
-  --border: #3b4743;
-  --text: #edf2f0;
-  --muted: #a8b4b0;
-  --primary: #58bda5;
-  --primary-foreground: #0f201c;
-  --success: #7dcc98;
-  --success-soft: #1d3827;
-  --warning: #dfad60;
-  --warning-soft: #3b2c16;
-  --danger: #ee8991;
-  --danger-soft: #3e2024;
+  --bg: #1e1b17;
+  --surface: #26221c;
+  --surface-2: #322c24;
+  --border: #4a4339;
+  --text: #f3efe6;
+  --muted: #b3a998;
+  --primary: #d97757;
+  --primary-foreground: #1e1b17;
+  --success: #7cba8c;
+  --success-soft: #24301f;
+  --warning: #dcae63;
+  --warning-soft: #342a18;
+  --danger: #e08b83;
+  --danger-soft: #35211f;
 }
 
 @layer base {
@@ -77,5 +81,11 @@
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
+  }
+
+  /* 正在复习的那句话用衬线体：英文更好读，也和 408 卷面的观感一致。
+     UI 其余部分仍是 sans，避免整站变"报纸"。 */
+  .sentence-reader {
+    font-family: var(--font-serif);
   }
 }

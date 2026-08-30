@@ -188,3 +188,36 @@ def translate_sentences_if_missing_best_effort(
         seen.add(sentence_id)
         expected_text = expected_texts.get(sentence_id) if expected_texts else None
         translate_sentence_if_missing_best_effort(sentence_id, expected_text=expected_text)
+
+
+def resume_pending_translation_generation_best_effort() -> None:
+    """Retry sentences whose translations were interrupted before completion.
+
+    Translation work remains deliberately lightweight and non-persistent: the
+    sentence fields themselves are the source of truth.  On startup, scan the
+    active sentence rows and retry only those that still need a translation.
+    """
+    if not translation_configured():
+        return
+    try:
+        with get_connection() as conn:
+            rows = [
+                dict(row)
+                for row in conn.execute(
+                    """
+                    SELECT id, text, word_translations_json, sentence_translation
+                    FROM english_sentences
+                    WHERE COALESCE(deleted_at, '') = ''
+                    ORDER BY id
+                    """
+                ).fetchall()
+            ]
+        pending = [row for row in rows if _needs_translation(row)]
+        if not pending:
+            return
+        sentence_ids = [int(row["id"]) for row in pending]
+        expected_texts = {int(row["id"]): str(row.get("text") or "") for row in pending}
+        logger.info("resuming English translation for %s pending sentences", len(sentence_ids))
+        translate_sentences_if_missing_best_effort(sentence_ids, expected_texts)
+    except Exception:  # noqa: BLE001 - startup recovery must not stop the API.
+        logger.exception("English translation startup recovery failed")

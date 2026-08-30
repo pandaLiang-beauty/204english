@@ -1,20 +1,10 @@
 # Architecture
 
-```text
-App.vue                         # session gate
-└── StudyApp.vue                # route coordination and pending-save flush
-    ├── english/EnglishTopNav.vue
-    └── english/EnglishFlow.vue
+这是一个单用户英语复习应用，前端和后端都只服务英语业务。
 
-backend/app/main.py
-├── backend/app/platform        # local infrastructure only
-└── backend/app/english         # all English business behavior
-```
+- `backend/app/english/`：英语 API、复习队列、句子、文章、翻译和音频。
+- `frontend/src/english/`：英语页面、导航和交互状态。
+- `backend/app/platform/` 与 `frontend/src/platform/`：本仓库内部的基础设施。
+- 数据库只有 SQLite，入口分别是 `backend/app/main.py` 和前端 `App.vue`。
 
-The product is one English review application for one owner. There is no generic study Shell, system registry, subject switcher, activity timer, question schema, or PostgreSQL adapter.
-
-The dependency direction is `english -> platform`. Platform must not import English business code. The frontend follows the same ownership rule: `frontend/src/english` owns navigation, pages, state, audio, passages, and sentence interactions.
-
-SQLite is the only database. `english_review_events` is the ongoing behavioral fact source; sentence aggregate counters retain the historical baseline that predates event tracking. Review rounds freeze queue order, while unused due-card scheduling is intentionally absent.
-
-`backend/scripts/check_module_boundaries.py` rejects sibling systems, foreign imports and endpoints, external symlinks, missing write-origin protection, and absolute dependencies on another project root.
+依赖方向是 `english -> platform`。本仓库不依赖其他项目，不包含通用学科切换层。

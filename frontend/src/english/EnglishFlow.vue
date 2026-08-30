@@ -1,6 +1,15 @@
 <template>
   <div class="h-full overflow-y-auto bg-bg text-text">
-    <div class="mx-auto grid min-h-full max-w-[1500px] gap-4 px-3 py-4 md:px-5">
+    <!-- 页宽在这里统一决定：复习模式收窄到 1320px（保证英文行长好读），其余模式 1500px。
+         关键是 header 和下面的卡片共用同一个容器宽度，左右边缘对齐——
+         原来 header 是整容器宽、而 <main> 又 max-w-[1040px] mx-auto 居中，
+         两者对不上，才出现左侧那一大块不对称的空白。 -->
+    <div
+      :class="[
+        'mx-auto grid min-h-full gap-4 px-3 py-4 md:px-5',
+        isReview ? 'max-w-[1320px]' : 'max-w-[1500px]'
+      ]"
+    >
       <header class="border-b border-border pb-4">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div class="min-w-0">
@@ -133,7 +142,7 @@
             </div>
 
             <div class="mt-3 rounded-md bg-bg px-3 py-2 text-sm leading-6 text-text">
-              {{ audioSettings.sample_text || 'Clear voices make every English sentence easier to follow and remember.' }}
+              {{ audioSettings.sample_text || 'relatively' }}
             </div>
 
             <div class="mt-3 flex items-center justify-between gap-3">
@@ -815,8 +824,8 @@
       >
         <main
           :class="[
-            'mx-auto grid w-full min-w-0',
-            isLibrary ? 'max-w-none gap-3' : 'max-w-[1040px] gap-4'
+            'grid w-full min-w-0 max-w-none',
+            isLibrary ? 'gap-3' : 'gap-4'
           ]"
         >
           <p v-if="isReview && error" class="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
@@ -999,8 +1008,8 @@
           <template v-else>
           <article
             v-for="(sentence, index) in sentences"
-            :key="sentence.id"
-            :ref="el => setSentenceCardRef(sentence.id, el)"
+            :key="sentenceInstanceKey(sentence)"
+            :ref="el => setSentenceCardRef(sentence, el)"
             data-review-keyboard-scope
             :class="sentenceCardClass(sentence, index)"
             @click="activateSentence(index)"
@@ -1109,9 +1118,9 @@
               </template>
             </div>
 
-            <audio
-              v-if="sentence.audio_available && sentence.audio_url"
-              :ref="el => setSentenceAudioRef(sentence.id, el)"
+                <audio
+                  v-if="sentence.audio_available && sentence.audio_url"
+                  :ref="el => setSentenceAudioRef(sentence, el)"
               class="hidden"
               :src="resolveSentenceAudioSrc(sentence)"
               :preload="sentence.ui.cachedAudioUrl ? 'auto' : 'none'"
@@ -1120,31 +1129,16 @@
               @ended="handleSentenceAudioEnded(sentence)"
             />
 
-            <div
-              :class="[
-                'grid gap-3 border-t border-border bg-surface/60 px-4 py-4 md:px-5',
-                sentence.ui.showTranslation ? 'lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]' : 'grid-cols-1'
-              ]"
-            >
-              <section v-if="sentence.ui.showTranslation" class="rounded-md border border-border bg-bg p-3">
+            <div class="grid gap-3 border-t border-border bg-surface/60 px-4 py-4 md:px-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <section class="rounded-md border border-border bg-bg p-3">
                 <h3 class="text-xs font-semibold text-muted">整句翻译</h3>
-                <div v-if="sentence.ui.showTranslation && segmentPairs(sentence).length" class="sentence-segments mt-3 space-y-3">
-                  <div class="sentence-segment-en text-sm leading-7 text-text">
-                    <template v-for="(segment, index) in sentenceSegmentSources(sentence)" :key="`${sentence.id}-source-${index}`">
-                      <span>{{ segment }}</span>
-                      <span v-if="index < sentenceSegmentSources(sentence).length - 1" class="font-semibold text-primary"> / </span>
-                    </template>
+                <template v-if="sentence.ui.showTranslation">
+                  <div v-if="sentence.sentence_translation" class="sentence-translation mt-2 whitespace-pre-wrap text-sm leading-6 text-text">
+                    {{ sentence.sentence_translation }}
                   </div>
-                  <div class="sentence-segment-zh text-sm leading-7 text-muted">
-                    <template v-for="(segment, index) in sentenceSegmentTargets(sentence)" :key="`${sentence.id}-target-${index}`">
-                      <span>{{ segment }}</span>
-                      <span v-if="index < sentenceSegmentTargets(sentence).length - 1" class="font-semibold text-primary"> / </span>
-                    </template>
-                  </div>
-                </div>
-                <div v-else-if="sentence.ui.showTranslation && sentence.sentence_translation" class="sentence-translation mt-2 whitespace-pre-wrap text-sm leading-6 text-text">
-                  {{ sentence.sentence_translation }}
-                </div>
+                  <div v-else class="mt-2 text-sm text-muted">暂无翻译</div>
+                </template>
+                <div v-else class="mt-2 text-sm text-muted/60">翻译已隐藏，点右上「显示翻译」查看</div>
               </section>
 
               <section class="rounded-md border border-dashed border-border bg-bg p-3">
@@ -1187,11 +1181,8 @@
           </div>
           <div v-else-if="!sentences.length" class="rounded-lg border border-border bg-surface p-6 text-center text-sm text-muted">
             {{
-              isReview
-                && reviewRound?.remaining
-                && reviewRound?.available_remaining != null
-                && Number(reviewRound.available_remaining) === 0
-                ? `当前没有音频就绪的句子，另有 ${reviewRound.remaining} 句等待音频；生成后请手动刷新`
+              isReview && reviewRound?.is_completed
+                ? '当前安排已完成，下一份安排将在明天 8:00 开始'
                 : isReview && reviewRound?.remaining
                   ? '本页句子已经完成，可前往下一页或刷新继续'
                   : '没有匹配的句子'
@@ -1506,7 +1497,8 @@ const {
   deleteSentence,
   updateSentenceInList,
   markReviewed,
-  resetForModeChange
+  resetForModeChange,
+  disposeRoundBoundaryTimer
 } = useEnglishSentenceList({
   isCreate: () => isCreate.value,
   isStats: () => isStats.value,
@@ -1611,6 +1603,7 @@ const {
   resolveSentenceAudioSrc,
   setSentenceAudioRef,
   toggleSentenceAudio,
+  stopAllAudio,
   playWord,
   handleSentenceAudioEnded,
   handleSentenceAudioPlay,
@@ -1622,11 +1615,15 @@ const {
   disposeAudioResources
 } = audioControls
 
-function setSentenceCardRef(sentenceId, el) {
-  const id = Number(sentenceId)
-  if (!id) return
-  if (el) sentenceCardRefs.set(id, el)
-  else sentenceCardRefs.delete(id)
+function sentenceInstanceKey(sentence) {
+  const roundItemId = Number(sentence?.review_round_item_id || 0)
+  return roundItemId > 0 ? `round-${roundItemId}` : `sentence-${Number(sentence?.id || 0)}`
+}
+
+function setSentenceCardRef(sentence, el) {
+  const key = sentenceInstanceKey(sentence)
+  if (el) sentenceCardRefs.set(key, el)
+  else sentenceCardRefs.delete(key)
 }
 
 function sentenceCardClass(sentence, index) {
@@ -1646,7 +1643,7 @@ function activateSentence(index, options = {}) {
 async function scrollActiveSentenceIntoView() {
   await nextTick()
   const sentence = activeSentence.value
-  const el = sentence ? sentenceCardRefs.get(Number(sentence.id)) : null
+  const el = sentence ? sentenceCardRefs.get(sentenceInstanceKey(sentence)) : null
   el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
 }
 
@@ -1672,11 +1669,11 @@ async function markActiveReviewedAndNext() {
   if (keyboardReviewPromise) return keyboardReviewPromise
   const sentence = activeSentence.value
   if (!sentence || sentence.ui.reviewing) return false
-  const sentenceId = Number(sentence.id)
+  const instanceKey = sentenceInstanceKey(sentence)
   const pendingReview = (async () => {
-    if (sentence.ui.audioPlaying) await toggleSentenceAudio(sentence)
+    stopAllAudio()
     if (sentence.review_round_item_completed) {
-      if (Number(activeSentence.value?.id) === sentenceId) {
+      if (sentenceInstanceKey(activeSentence.value) === instanceKey) {
         await moveActiveSentence(1)
       }
       return true
@@ -1688,7 +1685,7 @@ async function markActiveReviewedAndNext() {
       activateSentence(0, { scroll: true })
       return true
     }
-    if (Number(activeSentence.value?.id) === sentenceId) {
+    if (sentenceInstanceKey(activeSentence.value) === instanceKey) {
       await moveActiveSentence(1)
     }
     return true
@@ -2041,6 +2038,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleEnglishKeyboard)
   stopVoicePreview()
+  disposeRoundBoundaryTimer()
   disposeAudioResources()
 })
 </script>

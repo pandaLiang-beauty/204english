@@ -52,7 +52,6 @@ def _chat_completion(
     temperature: float | None = None,
     reasoning_effort: str | None = None,
     disable_thinking: bool | None = None,
-    max_tokens: int | None = None,
     timeout_seconds: float | None = None,
 ) -> str:
     base_url = (base_url or os.getenv("STUDY_AI_BASE_URL", "")).strip().rstrip("/")
@@ -86,18 +85,6 @@ def _chat_completion(
         selected_disable_thinking = _bool_env(os.getenv("STUDY_AI_DISABLE_THINKING", ""))
     if selected_disable_thinking:
         payload["thinking"] = {"type": "disabled"}
-    selected_max_tokens = max_tokens
-    if selected_max_tokens is None:
-        raw_max_tokens = os.getenv("STUDY_AI_MAX_TOKENS", "").strip()
-        try:
-            selected_max_tokens = int(raw_max_tokens) if raw_max_tokens else None
-        except (TypeError, ValueError) as exc:
-            raise AIProviderError(
-                "AI 服务配置无效，请检查输出长度参数。",
-                f"AI max_tokens configuration is invalid: {exc}",
-            ) from exc
-    if selected_max_tokens:
-        payload["max_tokens"] = selected_max_tokens
 
     request = Request(
         f"{base_url}/chat/completions",

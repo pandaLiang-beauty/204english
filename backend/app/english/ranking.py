@@ -28,6 +28,7 @@ SMART_REVIEW_SETTINGS = {
     "algorithm_fatigue_lookahead": 80,
 }
 _MARKDOWN_WORD_PATTERN = re.compile(r"\*\*([^*]+)\*\*")
+_WORD_TOKEN_PATTERN = re.compile(r"[A-Za-z]+(?:['-][A-Za-z]+)*")
 
 
 def _json_loads(value: Any, fallback: Any) -> Any:
@@ -224,6 +225,155 @@ def _sentence_focus_entries(row: dict, canonical_map: dict[str, str] | None = No
 
 def _extract_focus_words(row: dict, canonical_map: dict[str, str] | None = None) -> set[str]:
     return {entry["key"] for entry in _sentence_focus_entries(row, canonical_map)}
+
+
+def _rank_percentiles(values: dict[int | str, float], *, include_zero: bool) -> dict[int | str, float]:
+    if not values:
+        return {}
+    ordered = sorted(values.items(), key=lambda item: (item[1], str(item[0])))
+    denominator = max(len(ordered) - 1, 1) if include_zero else len(ordered)
+    output: dict[int | str, float] = {}
+    index = 0
+    while index < len(ordered):
+        end = index
+        while end + 1 < len(ordered) and ordered[end + 1][1] == ordered[index][1]:
+            end += 1
+        average_index = (index + end) / 2
+        percentile = average_index / denominator if include_zero else (average_index + 1) / denominator
+        for tied_index in range(index, end + 1):
+            output[ordered[tied_index][0]] = min(1.0, max(0.0, percentile))
+        index = end + 1
+    return output
+
+
+def _focus_occurrences_by_sentence(
+    rows: list[dict],
+    canonical_map: dict[str, str],
+) -> tuple[dict[int, Counter[str]], Counter[str]]:
+    surface_to_key: dict[str, str] = {}
+    phrase_patterns: dict[str, re.Pattern] = {}
+    for row in rows:
+        for entry in _sentence_focus_entries(row, canonical_map):
+            key = str(entry["key"])
+            for surface in [key, *entry.get("surfaces", [])]:
+                normalized = _normalize_focus_word(surface)
+                if not normalized:
+                    continue
+                surface_to_key[normalized] = key
+                if " " in normalized:
+                    phrase_patterns.setdefault(
+                        key,
+                        re.compile(rf"(?<![A-Za-z0-9']){re.escape(normalized)}(?![A-Za-z0-9'])", re.IGNORECASE),
+                    )
+
+    by_sentence: dict[int, Counter[str]] = {}
+    totals: Counter[str] = Counter()
+    for row in rows:
+        sentence_id = int(row["id"])
+        plain_text = str(row.get("text") or "").replace("**", "")
+        counts: Counter[str] = Counter()
+        for token in _WORD_TOKEN_PATTERN.findall(plain_text):
+            normalized = _normalize_focus_word(token)
+            key = surface_to_key.get(normalized)
+            if not key:
+                for candidate in _word_key_candidates(normalized):
+                    key = surface_to_key.get(candidate)
+                    if key:
+                        break
+            if key:
+                counts[key] += 1
+        for key, pattern in phrase_patterns.items():
+            counts[key] += len(pattern.findall(plain_text))
+        by_sentence[sentence_id] = counts
+        totals.update(counts)
+    return by_sentence, totals
+
+
+def sentence_exposure_metrics(rows: list[dict]) -> dict[int, dict]:
+    """Return the frozen-cycle exposure inputs agreed for review scheduling."""
+    if not rows:
+        return {}
+    canonical_map = _build_word_canonical_map(rows)
+    occurrences, occurrence_totals = _focus_occurrences_by_sentence(rows, canonical_map)
+    word_plays: Counter[str] = Counter()
+    for row in rows:
+        for entry in _sentence_focus_entries(row, canonical_map):
+            word_plays[str(entry["key"])] += _safe_int(entry.get("play_count"))
+
+    word_weights = _rank_percentiles(dict(occurrence_totals), include_zero=False)
+    exposures: dict[int, float] = {}
+    details: dict[int, dict] = {}
+    for row in rows:
+        sentence_id = int(row["id"])
+        sentence_plays = _safe_int(row.get("review_count"))
+        word_exposure = sum(
+            word_plays[word] * float(word_weights.get(word, 0.0)) * count
+            for word, count in occurrences.get(sentence_id, {}).items()
+        )
+        exposure = float(sentence_plays) + word_exposure
+        exposures[sentence_id] = exposure
+        details[sentence_id] = {
+            "exposure": exposure,
+            "sentence_plays": sentence_plays,
+            "word_exposure": word_exposure,
+        }
+
+    sentence_percentiles = _rank_percentiles(exposures, include_zero=True)
+    for sentence_id, detail in details.items():
+        percentile = float(sentence_percentiles.get(sentence_id, 0.5))
+        wave = math.sin(2 * math.pi * percentile) ** 2
+        repeat_count = 1 + int(math.floor(6 * wave + 0.5))
+        detail["percentile"] = percentile
+        detail["repeat_count"] = min(7, max(1, repeat_count))
+    return details
+
+
+def build_review_schedule(ranked_items: list[tuple[dict, dict]]) -> list[dict]:
+    """Expand the smart order into seven evenly spaced repetition passes."""
+    if not ranked_items:
+        return []
+    rows = [row for row, _ in ranked_items]
+    exposure_by_id = sentence_exposure_metrics(rows)
+    prioritized = sorted(
+        enumerate(ranked_items),
+        key=lambda item: (
+            not (
+                _safe_int(item[1][0].get("review_count")) == 0
+                and _safe_int(item[1][0].get("word_play_total")) == 0
+                and _safe_int(item[1][0].get("completion_count")) == 0
+            ),
+            item[0],
+        ),
+    )
+    base_items = [item for _, item in prioritized]
+    slots_by_id: dict[int, list[int]] = {}
+    for row, _ in base_items:
+        sentence_id = int(row["id"])
+        repeat_total = int(exposure_by_id[sentence_id]["repeat_count"])
+        slots_by_id[sentence_id] = (
+            [0]
+            if repeat_total == 1
+            else [round(index * 6 / (repeat_total - 1)) for index in range(repeat_total)]
+        )
+
+    schedule: list[dict] = []
+    for slot in range(7):
+        for row, _ in base_items:
+            sentence_id = int(row["id"])
+            slots = slots_by_id[sentence_id]
+            if slot not in slots:
+                continue
+            detail = exposure_by_id[sentence_id]
+            schedule.append(
+                {
+                    "sentence_id": sentence_id,
+                    "repeat_index": slots.index(slot) + 1,
+                    "repeat_total": len(slots),
+                    "exposure_score": float(detail["exposure"]),
+                    "exposure_percentile": float(detail["percentile"]),
+                }
+            )
+    return schedule
 
 
 def _build_word_network(rows: list[dict], settings: dict) -> dict:

@@ -58,6 +58,7 @@ def stats(*, user_id: int, include_word_network: bool = True) -> dict:
                     END
                 ) AS with_audio,
                 COALESCE(SUM(review_count), 0) AS sentence_reviews,
+                COALESCE(SUM(completion_count), 0) AS sentence_completions,
                 COALESCE(SUM(word_play_total), 0) AS word_reviews
             FROM english_sentences
             """
@@ -76,7 +77,7 @@ def stats(*, user_id: int, include_word_network: bool = True) -> dict:
             SELECT COUNT(DISTINCT sentence_id) AS count
             FROM english_review_events
             WHERE user_id = ? AND substr(created_at, 1, 10) = ?
-              AND event_type IN ('sentence_review', 'sentence_play')
+              AND event_type = 'sentence_review'
             """,
             (user_id, today),
         ).fetchone()
@@ -99,8 +100,10 @@ def stats(*, user_id: int, include_word_network: bool = True) -> dict:
     today_counts = {str(row["event_type"]): int(row["count"]) for row in today_rows}
     all_event_counts = {str(row["event_type"]): int(row["count"]) for row in all_event_rows}
     sentence_reviews = int(summary["sentence_reviews"] or 0)
+    sentence_completions = int(summary["sentence_completions"] or 0)
     word_reviews = int(summary["word_reviews"] or 0)
-    tracked_sentence_reviews = all_event_counts.get("sentence_review", 0) + all_event_counts.get("sentence_play", 0)
+    tracked_sentence_reviews = all_event_counts.get("sentence_play", 0)
+    tracked_sentence_completions = all_event_counts.get("sentence_review", 0)
     tracked_word_reviews = all_event_counts.get("word_play", 0)
     legacy_sentence_reviews = max(0, sentence_reviews - tracked_sentence_reviews)
     legacy_word_reviews = max(0, word_reviews - tracked_word_reviews)
@@ -109,20 +112,24 @@ def stats(*, user_id: int, include_word_network: bool = True) -> dict:
         "active": int(summary["active"] or 0),
         "with_audio": int(summary["with_audio"] or 0),
         "sentence_reviews": sentence_reviews,
+        "sentence_completions": sentence_completions,
         "word_reviews": word_reviews,
         "tracked": {
             "sentence_reviews": tracked_sentence_reviews,
+            "sentence_completions": tracked_sentence_completions,
             "word_reviews": tracked_word_reviews,
             "total_reviews": tracked_sentence_reviews + tracked_word_reviews,
         },
         "legacy": {
             "sentence_reviews": legacy_sentence_reviews,
+            "sentence_completions": max(0, sentence_completions - tracked_sentence_completions),
             "word_reviews": legacy_word_reviews,
             "total_reviews": legacy_sentence_reviews + legacy_word_reviews,
         },
         "today": {
             "reviewed_sentences": int(today_reviewed_row["count"] or 0),
-            "sentence_reviews": today_counts.get("sentence_review", 0) + today_counts.get("sentence_play", 0),
+            "sentence_reviews": today_counts.get("sentence_play", 0),
+            "sentence_completions": today_counts.get("sentence_review", 0),
             "word_reviews": today_counts.get("word_play", 0),
             "focus_toggles": today_counts.get("focus_word_toggle", 0),
         },
@@ -184,7 +191,7 @@ def review_heatmap(*, user_id: int, days: int = 119) -> dict:
             continue
         event_type = str(row["event_type"] or "")
         count = int(row["count"] or 0)
-        if event_type in {"sentence_review", "sentence_play"}:
+        if event_type == "sentence_play":
             item["sentence_reviews"] += count
             item["total"] += count
         elif event_type == "word_play":
@@ -198,7 +205,7 @@ def review_heatmap(*, user_id: int, days: int = 119) -> dict:
     active_days = sum(1 for item in items if int(item["total"]) > 0)
     total_reviews = sum(int(item["total"]) for item in items)
     all_event_counts = {str(row["event_type"]): int(row["count"]) for row in all_event_rows}
-    tracked_sentence_reviews = all_event_counts.get("sentence_review", 0) + all_event_counts.get("sentence_play", 0)
+    tracked_sentence_reviews = all_event_counts.get("sentence_play", 0)
     tracked_word_reviews = all_event_counts.get("word_play", 0)
     lifetime_sentence_reviews = int(lifetime_row["sentence_reviews"] if lifetime_row else 0)
     lifetime_word_reviews = int(lifetime_row["word_reviews"] if lifetime_row else 0)

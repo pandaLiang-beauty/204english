@@ -19,13 +19,21 @@ from .passages import (
     today_passage,
     update_passage,
 )
+from . import review_rounds
 from .ranking import (
     _normalize_focus_word,
     _rank_sentences_by_peak_familiarity,
     _word_key_candidates,
+    build_review_schedule,
     sentence_word_network_metrics,
 )
-from .review_rounds import complete_current_item, queue_state
+from .review_rounds import (
+    advance_active_round,
+    close_due_round,
+    complete_current_item,
+    normalize_active_round_boundary,
+    queue_state,
+)
 from .stats import review_heatmap, stats
 
 
@@ -34,8 +42,9 @@ ENGLISH_AUDIO_DIR = ENGLISH_DATA_DIR / "audio"
 ENGLISH_PRONUNCIATION_DIR = ENGLISH_AUDIO_DIR / "pronunciations"
 DEFAULT_SENTENCE_AUDIO_PROVIDER = "edge"
 DEFAULT_SENTENCE_AUDIO_VOICE = "en-US-JennyNeural"
+DEFAULT_WORD_AUDIO_VOICE = "en-US-AriaNeural"
 SENTENCE_AUDIO_STATUSES = {"missing", "pending", "ready", "failed"}
-SENTENCE_AUDIO_PREVIEW_TEXT = "Clear voices make every English sentence easier to follow and remember."
+SENTENCE_AUDIO_PREVIEW_TEXT = "relatively"
 _KOKORO_ENGLISH_VOICE_SPECS = (
     ("af_heart", "Heart", "美式", "女声", "A"),
     ("af_alloy", "Alloy", "美式", "女声", "C"),
@@ -328,7 +337,10 @@ def pronunciation_urls(sentence_id: int, words: list[str] | Any) -> dict:
         filename = _pronunciation_filename(word)
         path = folder / filename
         if path.exists() and path.stat().st_size > 0:
-            result[word] = f"/api/english/pronunciations/{sentence_id}/{filename}"
+            result[word] = (
+                f"/api/english/pronunciations/{sentence_id}/{filename}"
+                f"?v={int(path.stat().st_mtime_ns)}"
+            )
     return result
 
 
@@ -720,10 +732,11 @@ def serialize_sentence(
         "audio_url": audio_url,
         "pronunciations": pronunciations,
         "word_audio_provider": "edge",
-        "word_audio_voice": os.getenv("STUDY_ENGLISH_EDGE_VOICE", DEFAULT_SENTENCE_AUDIO_VOICE).strip()
-        or DEFAULT_SENTENCE_AUDIO_VOICE,
+        "word_audio_voice": os.getenv("STUDY_ENGLISH_WORD_AUDIO_VOICE", DEFAULT_WORD_AUDIO_VOICE).strip()
+        or DEFAULT_WORD_AUDIO_VOICE,
         "word_audio_count": len(pronunciations),
         "review_count": _safe_int(row.get("review_count")),
+        "completion_count": _safe_int(row.get("completion_count")),
         "deleted_at": row.get("deleted_at") or "",
         "created_at": row.get("created_at") or "",
         "updated_at": updated_at,
@@ -771,6 +784,11 @@ def list_sentences(
 ) -> dict:
     page = max(int(page or 1), 1)
     page_size = max(1, min(int(page_size or 40), 200))
+    sort_key = (sort or "smart").strip().lower()
+    if user_id is not None and not search and not include_deleted and sort_key in SMART_SORTS:
+        # The timer normally keeps this current; this is the request-time
+        # recovery path when the process was restarted around a boundary.
+        advance_due_review_rounds(user_id=int(user_id))
     audio_settings = get_sentence_audio_settings()
     params: dict[str, Any] = {}
     where = "WHERE 1 = 1"
@@ -788,7 +806,6 @@ def list_sentences(
                 ).fetchall()
             )
 
-    sort_key = (sort or "smart").strip().lower()
     needs_standalone_network = sort_key not in SMART_SORTS or network_rows is not rows
     network_metrics_by_id = sentence_word_network_metrics(network_rows) if needs_standalone_network else {}
 
@@ -805,16 +822,12 @@ def list_sentences(
         if user_id is not None and not search and not include_deleted:
             row_by_id = {int(row["id"]): row for row, _ in ranked_items}
             metrics_by_id = {int(row["id"]): metrics for row, metrics in ranked_items}
-            ready_sentence_ids = [
-                int(row["id"])
-                for row, _ in ranked_items
-                if _sentence_audio_is_current(row, settings=audio_settings)
-            ]
+            schedule = build_review_schedule(ranked_items)
             with get_connection() as conn:
                 state = queue_state(
                     conn,
                     user_id=int(user_id),
-                    ordered_sentence_ids=ready_sentence_ids,
+                    schedule=schedule,
                     page=page,
                     page_size=page_size,
                     resume=resume,
@@ -826,7 +839,11 @@ def list_sentences(
                 if not row:
                     continue
                 item = serialize_list_sentence(row, metrics_by_id.get(sentence_id))
+                item["review_round_item_id"] = int(record["id"])
                 item["review_round_position"] = int(record["position"])
+                item["review_repeat_index"] = int(record.get("repeat_index") or 1)
+                item["review_repeat_total"] = int(record.get("repeat_total") or 1)
+                item["review_exposure"] = round(float(record.get("exposure_score") or 0), 3)
                 item["review_round_item_completed"] = bool(str(record.get("completed_at") or ""))
                 items.append(item)
             return {
@@ -875,6 +892,71 @@ def list_sentences(
         "page": page,
         "page_size": page_size,
     }
+
+
+def advance_due_review_rounds(*, now: datetime | None = None, user_id: int | None = None) -> list[dict]:
+    """Create or rotate fixed-boundary schedules for every local user.
+
+    This is called by the process scheduler and is also safe to call as a
+    request-time recovery path. It only changes a round when its fixed boundary
+    has arrived (or when no round exists yet).
+    """
+    current_now = now or review_rounds._utc_now()
+    with get_connection() as conn:
+        users = [int(user_id)] if user_id is not None else [
+            int(row["id"]) for row in conn.execute("SELECT id FROM users ORDER BY id").fetchall()
+        ]
+
+    results: list[dict] = []
+    for user_id in users:
+        with get_connection() as conn:
+            begin_immediate(conn)
+            has_history = bool(
+                conn.execute(
+                    "SELECT 1 FROM english_review_rounds WHERE user_id = ? LIMIT 1",
+                    (user_id,),
+                ).fetchone()
+            )
+            normalize_active_round_boundary(conn, user_id=user_id, now=current_now)
+            boundary = close_due_round(conn, user_id=user_id, now=current_now)
+            if boundary is None:
+                current = conn.execute(
+                    "SELECT * FROM english_review_rounds WHERE user_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
+                    (user_id,),
+                ).fetchone()
+                if current:
+                    results.append({"user_id": user_id, "round_id": int(current["id"]), "created": False})
+                continue
+            rows = rows_to_dicts(
+                conn.execute(
+                    "SELECT * FROM english_sentences WHERE COALESCE(deleted_at, '') = '' ORDER BY id"
+                ).fetchall()
+            )
+            if has_history:
+                # The cycle snapshot is defined at its fixed start boundary;
+                # avoid lexical timestamp comparisons because legacy rows may
+                # use SQLite's space-separated timestamp format.
+                snapshot_rows = []
+                for row in rows:
+                    try:
+                        created_at = datetime.fromisoformat(str(row.get("created_at") or ""))
+                    except ValueError:
+                        created_at = None
+                    if created_at is None:
+                        snapshot_rows.append(row)
+                    else:
+                        if created_at.tzinfo is None:
+                            created_at = created_at.replace(tzinfo=timezone.utc)
+                        if created_at.astimezone(timezone.utc) <= boundary:
+                            snapshot_rows.append(row)
+                rows = snapshot_rows
+            ranked_items = _rank_sentences_by_peak_familiarity(rows)
+            schedule = build_review_schedule(ranked_items)
+            current, created = advance_active_round(
+                conn, user_id=user_id, schedule=schedule, now=current_now, start_at=boundary
+            )
+            results.append({"user_id": user_id, "round_id": int(current["id"]), "created": created})
+    return results
 
 
 def get_sentence(sentence_id: int, *, include_deleted: bool = False) -> dict | None:
@@ -1289,6 +1371,7 @@ def review_sentence(
     sentence_id: int,
     event_type: str = "sentence_review",
     complete_round_item: bool = True,
+    round_item_id: int | None = None,
 ) -> dict | None:
     now = _now()
     clean_event_type = event_type if event_type in {"sentence_play", "sentence_review"} else "sentence_review"
@@ -1300,27 +1383,51 @@ def review_sentence(
         ).fetchone()
         if not row:
             return None
-        conn.execute(
-            """
-            UPDATE english_sentences
-            SET review_count = review_count + 1,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (now, sentence_id),
-        )
-        _record_event(conn, user_id=user_id, event_type=clean_event_type, sentence_id=sentence_id)
-        round_result = (
-            complete_current_item(conn, user_id=user_id, sentence_id=sentence_id)
-            if complete_round_item
-            else {"completed": False, "round_completed": False}
-        )
+        round_result = {"completed": False, "round_completed": False}
+        if clean_event_type == "sentence_play":
+            conn.execute(
+                """
+                UPDATE english_sentences
+                SET review_count = review_count + 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (now, sentence_id),
+            )
+            _record_event(conn, user_id=user_id, event_type=clean_event_type, sentence_id=sentence_id)
+        elif complete_round_item:
+            round_result = complete_current_item(
+                conn,
+                user_id=user_id,
+                sentence_id=sentence_id,
+                round_item_id=round_item_id,
+            )
+            if round_result.get("completed"):
+                conn.execute(
+                    """
+                    UPDATE english_sentences
+                    SET completion_count = completion_count + 1,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, sentence_id),
+                )
+                _record_event(
+                    conn,
+                    user_id=user_id,
+                    event_type=clean_event_type,
+                    sentence_id=sentence_id,
+                    metadata={"round_item_id": round_result.get("round_item_id")},
+                )
         updated = conn.execute("SELECT * FROM english_sentences WHERE id = ?", (sentence_id,)).fetchone()
     if not updated:
         return None
     result = serialize_sentence(dict(updated))
     result["review_round_item_completed"] = bool(round_result.get("completed"))
     result["review_round_completed"] = bool(round_result.get("round_completed"))
+    result["review_round_expired"] = bool(round_result.get("round_expired"))
+    result["review_round_item_id"] = round_result.get("round_item_id") or round_item_id
+    result["review_round_next_at"] = round_result.get("next_round_at") or ""
     return result
 
 

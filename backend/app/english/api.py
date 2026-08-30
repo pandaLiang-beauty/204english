@@ -52,6 +52,7 @@ class EnglishSentenceBulkPayload(BaseModel):
 class EnglishReviewPayload(BaseModel):
     event_type: str = "sentence_review"
     complete_round_item: bool = True
+    round_item_id: int | None = Field(default=None, ge=1)
 
 
 class EnglishFocusWordPayload(BaseModel):
@@ -553,6 +554,7 @@ def review_english_sentence(
         sentence_id=sentence_id,
         event_type=(payload.event_type if payload else "sentence_review"),
         complete_round_item=(payload.complete_round_item if payload else True),
+        round_item_id=(payload.round_item_id if payload else None),
     )
     if not sentence:
         raise HTTPException(status_code=404, detail="句子不存在")

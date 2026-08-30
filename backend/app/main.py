@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,8 +11,10 @@ from slowapi.errors import RateLimitExceeded
 
 from .english.api import router as english_router
 from .english.audio_generation import resume_pending_audio_generation_best_effort
+from .english import repository
 from .english.repository import reconcile_sentence_audio_metadata, reconcile_sentence_focus_state
 from .english.schema import initialize_schema as initialize_english_schema
+from .english.translation_generation import resume_pending_translation_generation_best_effort
 from .platform.api import router as platform_router
 from .platform.auth import ensure_default_user, purge_expired_sessions
 from .platform.db import initialize_database
@@ -46,6 +49,18 @@ app.add_middleware(
 app.include_router(platform_router)
 app.include_router(english_router)
 
+logger = logging.getLogger(__name__)
+_review_round_stop = threading.Event()
+
+
+def _review_round_scheduler() -> None:
+    """Keep fixed Beijing-08:00 review schedules advancing without page traffic."""
+    while not _review_round_stop.wait(15):
+        try:
+            repository.advance_due_review_rounds()
+        except Exception:  # noqa: BLE001 - scheduler must not take down the API
+            logger.exception("English review round scheduler failed")
+
 @app.on_event("startup")
 def startup() -> None:
     initialize_database()
@@ -54,8 +69,28 @@ def startup() -> None:
     reconcile_sentence_audio_metadata()
     ensure_default_user()
     purge_expired_sessions()
+    _review_round_stop.clear()
+    try:
+        repository.advance_due_review_rounds()
+    except Exception:  # noqa: BLE001 - startup recovery should not block the API
+        logger.exception("Initial English review round scheduling failed")
+    threading.Thread(
+        target=_review_round_scheduler,
+        name="english-review-round-scheduler",
+        daemon=True,
+    ).start()
     threading.Thread(
         target=resume_pending_audio_generation_best_effort,
         name="english-audio-resume",
         daemon=True,
     ).start()
+    threading.Thread(
+        target=resume_pending_translation_generation_best_effort,
+        name="english-translation-resume",
+        daemon=True,
+    ).start()
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    _review_round_stop.set()

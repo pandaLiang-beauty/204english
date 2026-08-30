@@ -1,100 +1,68 @@
 # 英语复习
 
-这是位于 `/root/english` 的独立、单用户英语复习工具。它只处理句子、重点词、阅读文章、翻译、音频、复习轮次和英语统计，不包含学科切换、通用题库、训练队列、聊天或多用户管理。
+这是位于 `/root/english` 的单用户英语复习工具。简短架构说明见 [`docs/architecture.md`](docs/architecture.md)。
 
-登录只保护公网入口和个人学习记录。界面只要求密码，内部固定使用唯一的 `admin` 账户。
+## 安装
 
-## 设计
+需要 Python 3.9+、Node.js 22 和 npm。复制配置并设置初始密码：
 
-熟悉度来自实际使用：整句复习、整句播放、重点词播放和跨句上下文接触。核心复习流不要求逐句选择“忘记 / 模糊 / 掌握”；每轮顺序冻结，避免复习过程中频繁跳序。
-
-```text
-/root/english/
-├── backend/app/platform/   # 本仓库的 SQLite、认证、安全和 AI HTTP 传输
-├── backend/app/english/    # 英语业务、API、排序、翻译、文章和音频
-├── backend/scripts/english/
-├── frontend/src/platform/  # 登录、主题和 HTTP 基础设施
-└── frontend/src/english/   # 英语导航、界面和交互状态
+```bash
+cp .env.example .env.local
+# 编辑 .env.local，至少设置 STUDY_INITIAL_PASSWORD
+bash check-env.sh
 ```
 
-依赖方向是 `english -> platform`。不得导入其他仓库，不得建立外部软链接，也不得添加其他学科或系统切换器。
+本机部署会创建 Python 虚拟环境、安装依赖、构建前端并启动 systemd 服务：
 
-## 本地运行
+```bash
+bash deploy.sh
+```
 
-运行身份固定为：
+需要本地语音模型时，在部署时设置 `STUDY_INSTALL_TTS=1`。
 
-- 后端：`127.0.0.1:8103`
-- 前端：`127.0.0.1:5103/english/`
-- Cookie：`english_study_session`
-- SQLite：`backend/data/study.db`
-- systemd：`pro-study-platform-english-backend`、`pro-study-platform-english-frontend`
+## 运行
 
-根据 `.env.example` 创建 gitignored 的 `.env.local`，至少设置 `STUDY_INITIAL_PASSWORD`。开发环境使用本地 HTTP，因此允许不安全 Cookie：
+开发运行：
 
 ```bash
 bash start-dev.sh
 bash check-health.sh
+```
+
+打开 `http://127.0.0.1:5103/english/`。停止开发服务：
+
+```bash
 bash stop-dev.sh
 ```
 
-## 公网安全
+已部署的 systemd 服务停止命令：
 
-公网部署必须使用 HTTPS、Secure Cookie 和登录失败限流。`deploy.sh` 会拒绝非本机的 HTTP `STUDY_PUBLIC_ORIGIN`，也会拒绝 HTTPS 配置下的 `STUDY_COOKIE_INSECURE=1`。
-
-当前兼容入口 `http://193.112.97.187/english/` 的 443 端口尚未提供 TLS，因此不能视为安全的正式登录入口。应先在独立网关配置 HTTPS，再设置：
-
-```dotenv
-STUDY_PUBLIC_ORIGIN=https://your-domain.example
-STUDY_ALLOWED_ORIGINS=https://your-domain.example
-STUDY_COOKIE_INSECURE=0
-STUDY_LOGIN_MAX_FAILURES=5
-STUDY_LOGIN_WINDOW_SECONDS=600
+```bash
+bash stop-local.sh
 ```
 
-网关属于外部部署边界；本仓库不依赖其代码即可在本机运行。
+## 备份
 
-## 数据与备份
-
-系统只支持 SQLite。新数据库只创建 `users`、`sessions` 和 `english_*` 表。旧数据库中已有的通用平台表可能继续保留为只读历史残留，但运行时代码不会创建或访问它们；清理前必须先备份。
-
-媒体位于 `backend/data/english/`。使用 SQLite online backup 制作一致性备份：
+数据库使用 SQLite online backup：
 
 ```bash
 bash backup-db.sh
 ```
 
-部署与停止：
+命令会在 `backend/data/` 生成带时间戳的 `study.manual-backup-*.db`。音频和其他媒体位于 `backend/data/english/`，需要另外备份：
 
 ```bash
-bash deploy.sh
-bash stop-local.sh
+tar -czf /path/to/english-media-backup.tar.gz -C backend/data english
 ```
 
-首次安装 Kokoro 及 28 个英语音色：
+## 恢复
+
+先停止对应服务，再恢复数据库和媒体：
 
 ```bash
-STUDY_INSTALL_TTS=1 bash deploy.sh
+bash stop-local.sh                 # 开发环境改用 bash stop-dev.sh
+cp /path/to/study.manual-backup.db backend/data/study.db
+tar -xzf /path/to/english-media-backup.tar.gz -C backend/data
 ```
 
-## 项目记忆
-
-`memory.md` 是维护入口，它按任务路由到 `memory/maps/`、`memory/domains/`、`memory/decisions/` 和生成证据。
-
-```bash
-cd backend
-python3 scripts/generate_memory_evidence.py
-python3 scripts/check_memory.py
-```
-
-## 验证
-
-```bash
-(cd backend && python3 -m compileall -q app scripts)
-(cd backend && python3 scripts/check_module_boundaries.py)
-(cd backend && python3 scripts/check_memory.py)
-(cd frontend && npm test)
-(cd frontend && npm run build)
-(cd backend && .venv/bin/python scripts/reliability_check.py)
-git diff --check
-curl -fsS http://127.0.0.1:8103/api/health
-```
+恢复完成后重新运行 `bash deploy.sh` 或 `bash start-dev.sh`。

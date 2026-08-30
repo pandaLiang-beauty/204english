@@ -7,8 +7,9 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
 
   let currentWordAudio = null
   let currentSentenceAudio = null
-  let currentSentenceId = null
+  let currentSentenceKey = ''
   const sentenceAudioElements = new Map()
+  const recordedSentenceStarts = new WeakSet()
   const audioStatusRefreshTimers = new Set()
   const preloadWindowSize = 36
   const preloadWarmupDelay = 180
@@ -27,17 +28,43 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
     return sentence?.ui?.cachedAudioUrl || sentence?.audio_url || ''
   }
 
-  function setSentenceAudioRef(sentenceId, el) {
-    const id = Number(sentenceId)
-    if (!id) return
-    if (el) sentenceAudioElements.set(id, el)
-    else sentenceAudioElements.delete(id)
+  function sentenceInstanceKey(sentence) {
+    if (typeof sentence === 'number' || typeof sentence === 'string') {
+      return `sentence-${Number(sentence || 0)}`
+    }
+    const roundItemId = Number(sentence?.review_round_item_id || 0)
+    return roundItemId > 0 ? `round-${roundItemId}` : `sentence-${Number(sentence?.id || 0)}`
+  }
+
+  function setSentenceAudioRef(sentence, el) {
+    const key = sentenceInstanceKey(sentence)
+    if (!key) return
+    if (el) sentenceAudioElements.set(key, el)
+    else sentenceAudioElements.delete(key)
+  }
+
+  function stopWordAudio() {
+    if (!currentWordAudio) return
+    currentWordAudio.pause()
+    currentWordAudio = null
+  }
+
+  function stopSentenceAudio() {
+    if (!currentSentenceAudio) return
+    currentSentenceAudio.pause()
+    currentSentenceAudio = null
+    currentSentenceKey = ''
+  }
+
+  function stopAllAudio() {
+    stopWordAudio()
+    stopSentenceAudio()
   }
 
   async function toggleSentenceAudio(sentence) {
     if (!sentence) return
-    const sentenceId = Number(sentence.id)
-    const audio = sentenceAudioElements.get(sentenceId)
+    const key = sentenceInstanceKey(sentence)
+    const audio = sentenceAudioElements.get(key)
     if (!audio) {
       sentence.ui.message = '整句音频不可用'
       return
@@ -49,8 +76,9 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
     if (currentSentenceAudio && currentSentenceAudio !== audio) {
       currentSentenceAudio.pause()
     }
+    stopWordAudio()
     currentSentenceAudio = audio
-    currentSentenceId = sentenceId
+    currentSentenceKey = key
     sentence.ui.message = ''
     try {
       await audio.play()
@@ -59,7 +87,7 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
       sentence.ui.status = ''
       if (currentSentenceAudio === audio) {
         currentSentenceAudio = null
-        currentSentenceId = null
+        currentSentenceKey = ''
       }
       sentence.ui.message = err?.message || '无法播放整句音频'
     }
@@ -92,10 +120,13 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
         return
       }
       if (currentWordAudio) {
-        currentWordAudio.pause()
-        currentWordAudio = null
+        stopWordAudio()
       }
+      stopSentenceAudio()
       currentWordAudio = new Audio(source)
+      currentWordAudio.addEventListener('ended', () => {
+        currentWordAudio = null
+      }, { once: true })
       await currentWordAudio.play()
       const updated = await englishApi.playWord(sentence.id, word)
       const decorated = callbacks.updateSentenceInList?.(updated, sentence)
@@ -108,41 +139,40 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
     }
   }
 
-  async function handleSentenceAudioEnded(sentence) {
+  function handleSentenceAudioEnded(sentence) {
     if (!sentence) return
+    const audio = sentenceAudioElements.get(sentenceInstanceKey(sentence))
+    if (audio) recordedSentenceStarts.delete(audio)
     handleSentenceAudioPause(sentence)
-    sentence.ui.status = '音频结束，记录复习'
-    try {
-      const updated = await callbacks.markReviewed?.(sentence, {
-        eventType: 'sentence_play',
-        silentMessage: true
-      })
-      if (updated?.review_round_completed) await callbacks.reloadRound?.()
-    } finally {
-      const fresh = sentencesRef.value.find(item => item.id === sentence.id)
-      if (fresh) fresh.ui.status = ''
-    }
   }
 
   function handleSentenceAudioPlay(sentence) {
-    const sentenceId = Number(sentence?.id)
-    const audio = sentenceAudioElements.get(sentenceId)
+    const key = sentenceInstanceKey(sentence)
+    const audio = sentenceAudioElements.get(key)
     if (currentSentenceAudio && currentSentenceAudio !== audio) {
       currentSentenceAudio.pause()
     }
+    stopWordAudio()
     currentSentenceAudio = audio || currentSentenceAudio
-    currentSentenceId = sentenceId || currentSentenceId
+    currentSentenceKey = key || currentSentenceKey
     sentence.ui.audioPlaying = true
     sentence.ui.status = '播放中'
+    if (!audio || Number(audio.currentTime || 0) > 0.05 || recordedSentenceStarts.has(audio)) return
+    recordedSentenceStarts.add(audio)
+    void callbacks.markReviewed?.(sentence, {
+      eventType: 'sentence_play',
+      completeRound: false,
+      silentMessage: true
+    })
   }
 
   function handleSentenceAudioPause(sentence) {
     sentence.ui.audioPlaying = false
     sentence.ui.status = ''
     applyPendingSentenceAudioCache(sentence)
-    if (Number(sentence?.id) === currentSentenceId) {
+    if (sentenceInstanceKey(sentence) === currentSentenceKey) {
       currentSentenceAudio = null
-      currentSentenceId = null
+      currentSentenceKey = ''
     }
   }
 
@@ -246,7 +276,8 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
   }
 
   function advancePreloadWindowFromSentence(sentence) {
-    const index = sentencesRef.value.findIndex(item => item.id === sentence.id)
+    const key = sentenceInstanceKey(sentence)
+    const index = sentencesRef.value.findIndex(item => sentenceInstanceKey(item) === key)
     if (index === -1) return
     const nextStart = index + 1
     if (nextStart <= preloadWindowStart.value) return
@@ -257,12 +288,13 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
   function disposeSentenceCaches(list = []) {
     list.forEach(sentence => {
       if (!sentence?.ui) return
-      if (Number(sentence.id) === currentSentenceId && currentSentenceAudio) {
+      const key = sentenceInstanceKey(sentence)
+      if (key === currentSentenceKey && currentSentenceAudio) {
         currentSentenceAudio.pause()
         currentSentenceAudio = null
-        currentSentenceId = null
+        currentSentenceKey = ''
       }
-      sentenceAudioElements.delete(Number(sentence.id))
+      sentenceAudioElements.delete(key)
       if (sentence.ui.cachedAudioUrl) URL.revokeObjectURL(sentence.ui.cachedAudioUrl)
       if (sentence.ui.pendingCachedAudioUrl) URL.revokeObjectURL(sentence.ui.pendingCachedAudioUrl)
       Object.values(sentence.ui.wordAudioCache || {}).forEach(url => {
@@ -277,15 +309,7 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
   function disposeAudioResources() {
     audioStatusRefreshTimers.forEach(timer => window.clearTimeout(timer))
     audioStatusRefreshTimers.clear()
-    if (currentWordAudio) {
-      currentWordAudio.pause()
-      currentWordAudio = null
-    }
-    if (currentSentenceAudio) {
-      currentSentenceAudio.pause()
-      currentSentenceAudio = null
-      currentSentenceId = null
-    }
+    stopAllAudio()
     resetPreloadWindow()
     disposeSentenceCaches(sentencesRef.value)
   }
@@ -295,6 +319,7 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
     resolveSentenceAudioSrc,
     setSentenceAudioRef,
     toggleSentenceAudio,
+    stopAllAudio,
     playWord,
     handleSentenceAudioEnded,
     handleSentenceAudioPlay,

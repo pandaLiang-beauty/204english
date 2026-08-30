@@ -16,6 +16,7 @@ backend/data/english/
 backend/data/
 backend/server.log
 backend/server.pid
+*.log
 frontend/node_modules/
 frontend/dist/
 frontend/public/fonts/**/*.otf

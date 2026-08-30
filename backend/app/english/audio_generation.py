@@ -15,7 +15,7 @@ from ..platform.db import get_connection, rows_to_dicts
 from . import repository
 
 
-DEFAULT_EDGE_VOICE = "en-US-JennyNeural"
+DEFAULT_EDGE_VOICE = repository.DEFAULT_WORD_AUDIO_VOICE
 DEFAULT_KOKORO_VOICE = "af_heart"
 DEFAULT_KOKORO_SAMPLE_RATE = 24000
 DEFAULT_KOKORO_MODEL_DIR = repository.ENGLISH_DATA_DIR / "kokoro"
@@ -497,7 +497,7 @@ def generate_word_audio_for_sentence_ids(
     if not ids:
         return {"generated": 0, "skipped": 0, "failed": []}
     rows = _load_sentence_rows(ids=ids)
-    selected_voice = voice or os.getenv("STUDY_ENGLISH_EDGE_VOICE", DEFAULT_EDGE_VOICE).strip() or DEFAULT_EDGE_VOICE
+    selected_voice = voice or os.getenv("STUDY_ENGLISH_WORD_AUDIO_VOICE", DEFAULT_EDGE_VOICE).strip() or DEFAULT_EDGE_VOICE
     return asyncio.run(
         generate_word_audio_for_rows(
             rows,
