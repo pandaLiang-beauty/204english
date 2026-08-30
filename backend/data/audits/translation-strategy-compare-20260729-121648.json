@@ -1,0 +1,895 @@
+{
+  "created_at": "2026-07-29T12:08:39.833129+00:00",
+  "model": "deepseek-ai/deepseek-v4-pro",
+  "sentence_ids": [
+    718,
+    695,
+    703,
+    649,
+    659,
+    705
+  ],
+  "max_provider_calls": 36,
+  "items": [
+    {
+      "sentence_id": 718,
+      "source": "People often complain that **plastics** are too **durable**.",
+      "reference_translation": "人们常常抱怨塑料过于耐用。",
+      "words": [
+        "plastics",
+        "durable"
+      ],
+      "combined": {
+        "ok": true,
+        "provider_calls": 1,
+        "elapsed_seconds": 4.62,
+        "result": {
+          "items": [
+            {
+              "word": "plastics",
+              "translation": "本义：塑料；句中：塑料"
+            },
+            {
+              "word": "durable",
+              "translation": "本义：耐用的；句中：耐用的",
+              "tip": "dur- 表示持久"
+            }
+          ],
+          "word_translations": {
+            "plastics": "本义：塑料；句中：塑料",
+            "durable": "本义：耐用的；句中：耐用的"
+          },
+          "word_tips": {
+            "durable": "dur- 表示持久"
+          },
+          "sentence_translation": "人们常常抱怨塑料太过耐用。",
+          "sentence_segments": [
+            "People often complain that plastics are too durable."
+          ],
+          "translation_segments": [
+            "人们常常抱怨塑料太过耐用。"
+          ]
+        },
+        "metrics": {
+          "local_issues": [],
+          "source_segments_cover_source": true,
+          "translation_segments_match_translation": true,
+          "reference_char_similarity": 0.9167,
+          "segment_count": 1,
+          "word_count": 2,
+          "tip_count": 1
+        }
+      },
+      "split": {
+        "ok": true,
+        "provider_calls": 4,
+        "elapsed_seconds": 50.09,
+        "result": {
+          "items": [
+            {
+              "word": "plastics",
+              "translation": "本义：塑料；句中：塑料制品"
+            },
+            {
+              "word": "durable",
+              "translation": "本义：耐用的；句中：难以降解的",
+              "tip": "dur=持续，-able=可…的"
+            }
+          ],
+          "word_translations": {
+            "plastics": "本义：塑料；句中：塑料制品",
+            "durable": "本义：耐用的；句中：难以降解的"
+          },
+          "word_tips": {
+            "durable": "dur=持续，-able=可…的"
+          },
+          "sentence_translation": "人们常常抱怨塑料过于耐用。",
+          "sentence_segments": [
+            "People often complain",
+            "that plastics are too durable."
+          ],
+          "translation_segments": [
+            "人们常常抱怨",
+            "塑料过于耐用。"
+          ]
+        },
+        "metrics": {
+          "local_issues": [],
+          "source_segments_cover_source": true,
+          "translation_segments_match_translation": true,
+          "reference_char_similarity": 1.0,
+          "segment_count": 2,
+          "word_count": 2,
+          "tip_count": 1
+        },
+        "ai_review_issues": []
+      }
+    },
+    {
+      "sentence_id": 695,
+      "source": "**alluding** to the fact that before the birth of **proper** **dentistry**, mouths were often in a shocking state of hygiene.",
+      "reference_translation": "暗示在正规牙科诞生之前，口腔的卫生状况往往糟糕得令人震惊。",
+      "words": [
+        "alluding",
+        "proper",
+        "dentistry"
+      ],
+      "combined": {
+        "ok": true,
+        "provider_calls": 1,
+        "elapsed_seconds": 18.27,
+        "result": {
+          "items": [
+            {
+              "word": "alluding",
+              "translation": "本义：暗指；句中：暗指"
+            },
+            {
+              "word": "proper",
+              "translation": "本义：适当的；句中：正规的"
+            },
+            {
+              "word": "dentistry",
+              "translation": "本义：牙科学；句中：牙科",
+              "tip": "dent- 表示牙齿"
+            }
+          ],
+          "word_translations": {
+            "alluding": "本义：暗指；句中：暗指",
+            "proper": "本义：适当的；句中：正规的",
+            "dentistry": "本义：牙科学；句中：牙科"
+          },
+          "word_tips": {
+            "dentistry": "dent- 表示牙齿"
+          },
+          "sentence_translation": "这暗指在正规牙科诞生之前，人们口腔的卫生状况往往非常糟糕。",
+          "sentence_segments": [
+            "alluding to the fact that before the birth of proper dentistry",
+            "mouths were often in a shocking state of hygiene"
+          ],
+          "translation_segments": [
+            "这暗指在正规牙科诞生之前",
+            "人们口腔的卫生状况往往非常糟糕"
+          ]
+        },
+        "metrics": {
+          "local_issues": [],
+          "source_segments_cover_source": true,
+          "translation_segments_match_translation": true,
+          "reference_char_similarity": 0.7778,
+          "segment_count": 2,
+          "word_count": 3,
+          "tip_count": 1
+        }
+      },
+      "split": {
+        "ok": true,
+        "provider_calls": 4,
+        "elapsed_seconds": 43.05,
+        "result": {
+          "items": [
+            {
+              "word": "alluding",
+              "translation": "本义：暗指；提及；句中：暗指"
+            },
+            {
+              "word": "proper",
+              "translation": "本义：适当的；真正的；句中：真正意义上的"
+            },
+            {
+              "word": "dentistry",
+              "translation": "本义：牙科学；句中：牙科学",
+              "tip": "-ist 表示专家，-ry 表示学科"
+            }
+          ],
+          "word_translations": {
+            "alluding": "本义：暗指；提及；句中：暗指",
+            "proper": "本义：适当的；真正的；句中：真正意义上的",
+            "dentistry": "本义：牙科学；句中：牙科学"
+          },
+          "word_tips": {
+            "dentistry": "-ist 表示专家，-ry 表示学科"
+          },
+          "sentence_translation": "暗指在正规牙科出现之前，人们的口腔卫生状况往往非常糟糕。",
+          "sentence_segments": [
+            "alluding to the fact that before the birth of proper dentistry,",
+            "mouths were often in a shocking state of hygiene."
+          ],
+          "translation_segments": [
+            "暗指在正规牙科出现之前，",
+            "人们的口腔卫生状况往往非常糟糕。"
+          ]
+        },
+        "metrics": {
+          "local_issues": [],
+          "source_segments_cover_source": true,
+          "translation_segments_match_translation": true,
+          "reference_char_similarity": 0.6792,
+          "segment_count": 2,
+          "word_count": 3,
+          "tip_count": 1
+        },
+        "ai_review_issues": []
+      }
+    },
+    {
+      "sentence_id": 703,
+      "source": "A federal **appeals** court **weighed** in again Tuesday, but instead of providing a **badly** needed resolution, it only **prolonged** the fight.",
+      "reference_translation": "一家联邦上诉法院周二再次介入，但非但没有提供急需的解决方案，反而延长了争斗。",
+      "words": [
+        "appeals",
+        "weighed",
+        "badly",
+        "prolonged"
+      ],
+      "combined": {
+        "ok": true,
+        "provider_calls": 1,
+        "elapsed_seconds": 14.88,
+        "result": {
+          "items": [
+            {
+              "word": "appeals",
+              "translation": "本义：上诉；句中：上诉",
+              "tip": "appeal + s"
+            },
+            {
+              "word": "weighed",
+              "translation": "本义：称重；句中：介入",
+              "tip": "weigh in 固定搭配"
+            },
+            {
+              "word": "badly",
+              "translation": "本义：糟糕地；句中：非常"
+            },
+            {
+              "word": "prolonged",
+              "translation": "本义：延长；句中：延长",
+              "tip": "pro- 向前 + long"
+            }
+          ],
+          "word_translations": {
+            "appeals": "本义：上诉；句中：上诉",
+            "weighed": "本义：称重；句中：介入",
+            "badly": "本义：糟糕地；句中：非常",
+            "prolonged": "本义：延长；句中：延长"
+          },
+          "word_tips": {
+            "appeals": "appeal + s",
+            "weighed": "weigh in 固定搭配",
+            "prolonged": "pro- 向前 + long"
+          },
+          "sentence_translation": "一家联邦上诉法院周二再次介入，但并未提供急需的解决方案，反而只是延长了这场争斗。",
+          "sentence_segments": [
+            "A federal appeals court weighed in again Tuesday",
+            "but instead of providing a badly needed resolution",
+            "it only prolonged the fight"
+          ],
+          "translation_segments": [
+            "一家联邦上诉法院周二再次介入",
+            "但并未提供急需的解决方案",
+            "反而只是延长了这场争斗"
+          ]
+        },
+        "metrics": {
+          "local_issues": [],
+          "source_segments_cover_source": true,
+          "translation_segments_match_translation": true,
+          "reference_char_similarity": 0.8611,
+          "segment_count": 3,
+          "word_count": 4,
+          "tip_count": 3
+        }
+      },
+      "split": {
+        "ok": true,
+        "provider_calls": 4,
+        "elapsed_seconds": 65.85,
+        "result": {
+          "items": [
+            {
+              "word": "appeals",
+              "translation": "本义：上诉；句中：上诉"
+            },
+            {
+              "word": "weighed",
+              "translation": "本义：称重；句中：介入发表意见",
+              "tip": "weigh in 固定短语"
+            },
+            {
+              "word": "badly",
+              "translation": "本义：糟糕地；句中：非常"
+            },
+            {
+              "word": "prolonged",
+              "translation": "本义：延长；句中：延长"
+            }
+          ],
+          "word_translations": {
+            "appeals": "本义：上诉；句中：上诉",
+            "weighed": "本义：称重；句中：介入发表意见",
+            "badly": "本义：糟糕地；句中：非常",
+            "prolonged": "本义：延长；句中：延长"
+          },
+          "word_tips": {
+            "weighed": "weigh in 固定短语"
+          },
+          "sentence_translation": "周二，一家联邦上诉法院再次介入，但非但没有给出亟需的解决方案，反而只是延长了这场争斗。",
+          "sentence_segments": [
+            "A federal appeals court weighed in again Tuesday,",
+            "but instead of providing a badly needed resolution,",
+            "it only prolonged the fight."
+          ],
+          "translation_segments": [
+            "周二，一家联邦上诉法院再次介入，",
+            "但非但没有给出亟需的解决方案，",
+            "反而只是延长了这场争斗。"
+          ]
+        },
+        "metrics": {
+          "local_issues": [],
+          "source_segments_cover_source": true,
+          "translation_segments_match_translation": true,
+          "reference_char_similarity": 0.8108,
+          "segment_count": 3,
+          "word_count": 4,
+          "tip_count": 1
+        },
+        "ai_review_issues": []
+      }
+    },
+    {
+      "sentence_id": 649,
+      "source": "It has become a **grimly** reliable annual **ritual**: every January the cost of travelling by train rises, **imposing** a significant **extra** **burden** on those who have no option but to use the rail network to get to work or otherwise.",
+      "reference_translation": "这已成为一项令人沮丧的可靠年度惯例：每年一月，火车旅行费用都会上涨，给那些别无选择只能依靠铁路网络通勤或出行的人带来沉重的额外负担。",
+      "words": [
+        "grimly",
+        "ritual",
+        "imposing",
+        "extra",
+        "burden"
+      ],
+      "combined": {
+        "ok": true,
+        "provider_calls": 1,
+        "elapsed_seconds": 18.2,
+        "result": {
+          "items": [
+            {
+              "word": "grimly",
+              "translation": "本义：冷酷地；令人沮丧地；句中：令人沮丧地"
+            },
+            {
+              "word": "ritual",
+              "translation": "本义：仪式；惯例；句中：惯例"
+            },
+            {
+              "word": "imposing",
+              "translation": "本义：强加；迫使；句中：迫使承受"
+            },
+            {
+              "word": "extra",
+              "translation": "本义：额外的；句中：额外的"
+            },
+            {
+              "word": "burden",
+              "translation": "本义：负担；重担；句中：负担"
+            }
+          ],
+          "word_translations": {
+            "grimly": "本义：冷酷地；令人沮丧地；句中：令人沮丧地",
+            "ritual": "本义：仪式；惯例；句中：惯例",
+            "imposing": "本义：强加；迫使；句中：迫使承受",
+            "extra": "本义：额外的；句中：额外的",
+            "burden": "本义：负担；重担；句中：负担"
+          },
+          "word_tips": {},
+          "sentence_translation": "这已成为一个令人沮丧的年度惯例：每年一月火车票价都会上涨，给那些别无选择只能靠铁路通勤的人带来沉重的额外负担。",
+          "sentence_segments": [
+            "It has become a grimly reliable annual ritual: every January the cost of travelling by train rises, imposing a significant extra burden on those who have no option but to use the rail network to get to work or otherwise."
+          ],
+          "translation_segments": [
+            "这已成为一个令人沮丧的年度惯例：每年一月火车票价都会上涨，迫使那些别无选择只能靠铁路通勤的人承受沉重的额外负担。"
+          ]
+        },
+        "metrics": {
+          "local_issues": [],
+          "source_segments_cover_source": true,
+          "translation_segments_match_translation": false,
+          "reference_char_similarity": 0.8596,
+          "segment_count": 1,
+          "word_count": 5,
+          "tip_count": 0
+        }
+      },
+      "split": {
+        "ok": true,
+        "provider_calls": 4,
+        "elapsed_seconds": 53.34,
+        "result": {
+          "items": [
+            {
+              "word": "grimly",
+              "translation": "本义：严厉地；冷酷地；句中：令人沮丧地"
+            },
+            {
+              "word": "ritual",
+              "translation": "本义：仪式；惯例；句中：例行之事"
+            },
+            {
+              "word": "imposing",
+              "translation": "本义：施加；强加；句中：造成"
+            },
+            {
+              "word": "extra",
+              "translation": "本义：额外的；句中：额外的"
+            },
+            {
+              "word": "burden",
+              "translation": "本义：负担；重负；句中：负担"
+            }
+          ],
+          "word_translations": {
+            "grimly": "本义：严厉地；冷酷地；句中：令人沮丧地",
+            "ritual": "本义：仪式；惯例；句中：例行之事",
+            "imposing": "本义：施加；强加；句中：造成",
+            "extra": "本义：额外的；句中：额外的",
+            "burden": "本义：负担；重负；句中：负担"
+          },
+          "word_tips": {},
+          "sentence_translation": "这已成为一个令人沮丧却年年准时上演的惯例：每到一月，火车出行费用就会上涨，给那些别无选择、只能依靠铁路通勤或出行的人带来沉重的额外负担。",
+          "sentence_segments": [
+            "It has become a grimly reliable annual ritual:",
+            "every January",
+            "the cost of travelling by train rises,",
+            "imposing a significant extra burden",
+            "on those who have no option but to use the rail network to get to work or otherwise."
+          ],
+          "translation_segments": [
+            "这已成为一个令人沮丧却年年准时上演的惯例：",
+            "每到一月，",
+            "火车出行费用就会上涨，",
+            "带来沉重的额外负担，",
+            "给那些别无选择、只能依靠铁路通勤或出行的人。"
+          ]
+        },
+        "metrics": {
+          "local_issues": [],
+          "source_segments_cover_source": true,
+          "translation_segments_match_translation": false,
+          "reference_char_similarity": 0.832,
+          "segment_count": 5,
+          "word_count": 5,
+          "tip_count": 0
+        },
+        "ai_review_issues": [
+          "中文块4“带来沉重的额外负担，”以逗号结尾，但语义上需要后文补足“给谁”，停顿在不完整的位置，不符合标准4",
+          "英文块4“imposing a significant extra burden”以名词结尾，但语义上需要后文补足“on those...”，停顿在不完整的位置，不符合标准4"
+        ]
+      }
+    },
+    {
+      "sentence_id": 659,
+      "source": "but passengers will not be willing to pay more **indefinitely** if they must also endure **cramped**, unreliable services, **punctuated** by regular chaos when timetables are changed, or planned **maintenance** is managed incompetently.",
+      "reference_translation": "但如果乘客还必须忍受拥挤、不可靠的服务，以及因时刻表变更或计划维护管理不善而时常出现的混乱，他们不会愿意无限期地支付更多费用。",
+      "words": [
+        "indefinitely",
+        "cramped",
+        "punctuated",
+        "maintenance"
+      ],
+      "combined": {
+        "ok": false,
+        "error": "AIProviderError:AI 翻译结果未通过本地校验，请重试。",
+        "provider_calls_so_far": 21
+      },
+      "split": {
+        "ok": true,
+        "provider_calls": 3,
+        "elapsed_seconds": 93.62,
+        "result": {
+          "items": [
+            {
+              "word": "indefinitely",
+              "translation": "本义：无限期地；句中：无休止地"
+            },
+            {
+              "word": "cramped",
+              "translation": "本义：狭窄的；句中：拥挤不堪的"
+            },
+            {
+              "word": "punctuated",
+              "translation": "本义：不时打断；句中：不时被…打断"
+            },
+            {
+              "word": "maintenance",
+              "translation": "本义：维护；句中：养护",
+              "tip": "main+ten+ance"
+            }
+          ],
+          "word_translations": {
+            "indefinitely": "本义：无限期地；句中：无休止地",
+            "cramped": "本义：狭窄的；句中：拥挤不堪的",
+            "punctuated": "本义：不时打断；句中：不时被…打断",
+            "maintenance": "本义：维护；句中：养护"
+          },
+          "word_tips": {
+            "maintenance": "main+ten+ance"
+          },
+          "sentence_translation": "但如果乘客还必须忍受拥挤、不可靠的服务，并且时刻表变更或计划内维护管理不善时经常陷入混乱，他们就不会愿意无限期地支付更高的费用。",
+          "sentence_segments": [
+            "but passengers will not be willing to pay more indefinitely",
+            "if they must also endure cramped, unreliable services, punctuated by regular chaos",
+            "when timetables are changed, or planned maintenance is managed incompetently."
+          ],
+          "translation_segments": [
+            "但乘客不会愿意无限期地支付更高的费用",
+            "如果还必须忍受拥挤、不可靠的服务，并经常陷入混乱",
+            "在时刻表变更或计划内维护管理不善时。"
+          ]
+        },
+        "metrics": {
+          "local_issues": [
+            "standalone_if_clause:if they must also endure cramp"
+          ],
+          "source_segments_cover_source": true,
+          "translation_segments_match_translation": false,
+          "reference_char_similarity": 0.8571,
+          "segment_count": 3,
+          "word_count": 4,
+          "tip_count": 1
+        },
+        "ai_review_issues": []
+      }
+    },
+    {
+      "sentence_id": 705,
+      "source": "The **Republican-penned** order not only **eliminated** the **strict** net neutrality rules the FCC had adopted when it had a Democratic majority in 2015, but rejected the commission's authority to require broadband providers to do much of anything.",
+      "reference_translation": "这份由共和党人起草的命令不仅废除了联邦通信委员会在2015年民主党占多数时通过的严格网络中立规则，还否定了该委员会要求宽带提供商做很多事情的权利。",
+      "words": [
+        "Republican-penned",
+        "eliminated",
+        "strict"
+      ],
+      "combined": {
+        "ok": false,
+        "error": "AIProviderError:AI 翻译结果未通过本地校验，请重试。",
+        "provider_calls_so_far": 25
+      },
+      "split": {
+        "ok": true,
+        "provider_calls": 4,
+        "elapsed_seconds": 73.66,
+        "result": {
+          "items": [
+            {
+              "word": "Republican-penned",
+              "translation": "本义：共和党人撰写的；句中：由共和党人起草的",
+              "tip": "penned 由 pen 加 -ed 构成"
+            },
+            {
+              "word": "eliminated",
+              "translation": "本义：消除；句中：废除"
+            },
+            {
+              "word": "strict",
+              "translation": "本义：严格的；句中：严格的"
+            }
+          ],
+          "word_translations": {
+            "Republican-penned": "本义：共和党人撰写的；句中：由共和党人起草的",
+            "eliminated": "本义：消除；句中：废除",
+            "strict": "本义：严格的；句中：严格的"
+          },
+          "word_tips": {
+            "Republican-penned": "penned 由 pen 加 -ed 构成"
+          },
+          "sentence_translation": "这份由共和党起草的命令，不仅废除了联邦通信委员会在2015年民主党占多数时通过的严格网络中立法规，还否定了该委员会要求宽带提供商承担大部分义务的权力。",
+          "sentence_segments": [
+            "The Republican-penned order",
+            "not only eliminated the strict net neutrality rules the FCC had adopted when it had a Democratic majority in 2015,",
+            "but rejected the commission's authority to require broadband providers to do much of anything."
+          ],
+          "translation_segments": [
+            "这份由共和党起草的命令，",
+            "不仅废除了联邦通信委员会在2015年民主党占多数时通过的严格网络中立法规，",
+            "还否定了该委员会要求宽带提供商承担大部分义务的权力。"
+          ]
+        },
+        "metrics": {
+          "local_issues": [],
+          "source_segments_cover_source": true,
+          "translation_segments_match_translation": true,
+          "reference_char_similarity": 0.8811,
+          "segment_count": 3,
+          "word_count": 3,
+          "tip_count": 1
+        },
+        "ai_review_issues": []
+      }
+    }
+  ],
+  "provider_calls": [
+    {
+      "index": 1,
+      "sentence_id": 718,
+      "strategy": "combined",
+      "phase": "combined",
+      "ok": true,
+      "elapsed_seconds": 4.62,
+      "response_chars": 442
+    },
+    {
+      "index": 2,
+      "sentence_id": 718,
+      "strategy": "split",
+      "phase": "sentence",
+      "ok": true,
+      "elapsed_seconds": 2.28,
+      "response_chars": 40
+    },
+    {
+      "index": 3,
+      "sentence_id": 718,
+      "strategy": "split",
+      "phase": "segments",
+      "ok": true,
+      "elapsed_seconds": 2.59,
+      "response_chars": 135
+    },
+    {
+      "index": 4,
+      "sentence_id": 718,
+      "strategy": "split",
+      "phase": "words",
+      "ok": true,
+      "elapsed_seconds": 10.68,
+      "response_chars": 362
+    },
+    {
+      "index": 5,
+      "sentence_id": 718,
+      "strategy": "split",
+      "phase": "review",
+      "ok": true,
+      "elapsed_seconds": 4.69,
+      "response_chars": 23
+    },
+    {
+      "index": 6,
+      "sentence_id": 695,
+      "strategy": "combined",
+      "phase": "combined",
+      "ok": true,
+      "elapsed_seconds": 10.45,
+      "response_chars": 686
+    },
+    {
+      "index": 7,
+      "sentence_id": 695,
+      "strategy": "split",
+      "phase": "sentence",
+      "ok": true,
+      "elapsed_seconds": 12.28,
+      "response_chars": 55
+    },
+    {
+      "index": 8,
+      "sentence_id": 695,
+      "strategy": "split",
+      "phase": "segments",
+      "ok": true,
+      "elapsed_seconds": 2.99,
+      "response_chars": 235
+    },
+    {
+      "index": 9,
+      "sentence_id": 695,
+      "strategy": "split",
+      "phase": "words",
+      "ok": true,
+      "elapsed_seconds": 10.45,
+      "response_chars": 538
+    },
+    {
+      "index": 10,
+      "sentence_id": 695,
+      "strategy": "split",
+      "phase": "review",
+      "ok": true,
+      "elapsed_seconds": 3.49,
+      "response_chars": 23
+    },
+    {
+      "index": 11,
+      "sentence_id": 703,
+      "strategy": "combined",
+      "phase": "combined",
+      "ok": true,
+      "elapsed_seconds": 5.87,
+      "response_chars": 882
+    },
+    {
+      "index": 12,
+      "sentence_id": 703,
+      "strategy": "split",
+      "phase": "sentence",
+      "ok": true,
+      "elapsed_seconds": 12.49,
+      "response_chars": 70
+    },
+    {
+      "index": 13,
+      "sentence_id": 703,
+      "strategy": "split",
+      "phase": "segments",
+      "ok": true,
+      "elapsed_seconds": 24.87,
+      "response_chars": 282
+    },
+    {
+      "index": 14,
+      "sentence_id": 703,
+      "strategy": "split",
+      "phase": "words",
+      "ok": true,
+      "elapsed_seconds": 13.0,
+      "response_chars": 670
+    },
+    {
+      "index": 15,
+      "sentence_id": 703,
+      "strategy": "split",
+      "phase": "review",
+      "ok": true,
+      "elapsed_seconds": 8.85,
+      "response_chars": 32
+    },
+    {
+      "index": 16,
+      "sentence_id": 649,
+      "strategy": "combined",
+      "phase": "combined",
+      "ok": true,
+      "elapsed_seconds": 14.55,
+      "response_chars": 1081
+    },
+    {
+      "index": 17,
+      "sentence_id": 649,
+      "strategy": "split",
+      "phase": "sentence",
+      "ok": true,
+      "elapsed_seconds": 2.86,
+      "response_chars": 95
+    },
+    {
+      "index": 18,
+      "sentence_id": 649,
+      "strategy": "split",
+      "phase": "segments",
+      "ok": true,
+      "elapsed_seconds": 4.67,
+      "response_chars": 428
+    },
+    {
+      "index": 19,
+      "sentence_id": 649,
+      "strategy": "split",
+      "phase": "words",
+      "ok": true,
+      "elapsed_seconds": 8.24,
+      "response_chars": 842
+    },
+    {
+      "index": 20,
+      "sentence_id": 649,
+      "strategy": "split",
+      "phase": "review",
+      "ok": true,
+      "elapsed_seconds": 15.82,
+      "response_chars": 191
+    },
+    {
+      "index": 21,
+      "sentence_id": 659,
+      "strategy": "combined",
+      "phase": "combined",
+      "ok": true,
+      "elapsed_seconds": 17.07,
+      "response_chars": 1075
+    },
+    {
+      "index": 22,
+      "sentence_id": 659,
+      "strategy": "split",
+      "phase": "sentence",
+      "ok": true,
+      "elapsed_seconds": 4.54,
+      "response_chars": 91
+    },
+    {
+      "index": 23,
+      "sentence_id": 659,
+      "strategy": "split",
+      "phase": "segments",
+      "ok": true,
+      "elapsed_seconds": 48.42,
+      "response_chars": 389
+    },
+    {
+      "index": 24,
+      "sentence_id": 659,
+      "strategy": "split",
+      "phase": "words",
+      "ok": true,
+      "elapsed_seconds": 32.7,
+      "response_chars": 700
+    },
+    {
+      "index": 25,
+      "sentence_id": 705,
+      "strategy": "combined",
+      "phase": "combined",
+      "ok": true,
+      "elapsed_seconds": 36.02,
+      "response_chars": 945
+    },
+    {
+      "index": 26,
+      "sentence_id": 705,
+      "strategy": "split",
+      "phase": "sentence",
+      "ok": true,
+      "elapsed_seconds": 36.95,
+      "response_chars": 102
+    },
+    {
+      "index": 27,
+      "sentence_id": 705,
+      "strategy": "split",
+      "phase": "segments",
+      "ok": true,
+      "elapsed_seconds": 16.95,
+      "response_chars": 421
+    },
+    {
+      "index": 28,
+      "sentence_id": 705,
+      "strategy": "split",
+      "phase": "words",
+      "ok": true,
+      "elapsed_seconds": 11.94,
+      "response_chars": 549
+    },
+    {
+      "index": 29,
+      "sentence_id": 705,
+      "strategy": "split",
+      "phase": "review",
+      "ok": true,
+      "elapsed_seconds": 7.26,
+      "response_chars": 32
+    }
+  ],
+  "summary": {
+    "total_provider_calls": 29,
+    "estimated_cost_usd": 0.232,
+    "calls_by_strategy": {
+      "combined": 6,
+      "split": 23
+    },
+    "calls_by_phase": {
+      "combined": 6,
+      "sentence": 6,
+      "segments": 6,
+      "words": 6,
+      "review": 5
+    },
+    "combined_passed_local": 4,
+    "split_passed_local": 5,
+    "split_fully_accepted": 4,
+    "split_review_rejected": 1,
+    "split_review_skipped_after_local_rejection": 1
+  }
+}
