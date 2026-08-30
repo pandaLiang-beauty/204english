@@ -7,6 +7,7 @@ import re
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ DEFAULT_KOKORO_SAMPLE_RATE = 24000
 DEFAULT_KOKORO_MODEL_DIR = repository.ENGLISH_DATA_DIR / "kokoro"
 VOICE_PREVIEW_DIR = repository.ENGLISH_AUDIO_DIR / "previews"
 _SENTENCE_GENERATION_LOCK = threading.Lock()
+_KOKORO_LOAD_LOCK = threading.Lock()
 
 
 def _now() -> str:
@@ -213,8 +215,37 @@ def _kokoro_language_code(voice: str) -> str:
     return "b" if str(voice or "").strip().lower().startswith("b") else "a"
 
 
+@contextmanager
+def _torch_mmap_load(torch: Any) -> Any:
+    """Force torch.load to memory-map checkpoints while KModel is constructed.
+
+    kokoro-v1_0.pth is ~312MB and KModel reads the whole state dict into
+    anonymous memory before copying it into the freshly built modules, so the
+    load transiently needs ~2x the checkpoint. On a small box that spike is what
+    gets the process OOM-killed. mmap=True keeps those pages file-backed and
+    evictable, which drops peak anonymous memory by roughly the checkpoint size.
+
+    torch.load is global, so the swap is serialised: two concurrent loads would
+    otherwise restore each other's wrapper instead of the original.
+    """
+    with _KOKORO_LOAD_LOCK:
+        original = torch.load
+
+        def load(*args: Any, **kwargs: Any) -> Any:
+            kwargs.setdefault("mmap", True)
+            return original(*args, **kwargs)
+
+        torch.load = load
+        try:
+            yield
+        finally:
+            torch.load = original
+
+
 def _kokoro_model():
     try:
+        import torch
+
         from kokoro import KModel
     except ImportError as exc:  # pragma: no cover - depends on optional packages.
         raise RuntimeError("kokoro is required for sentence audio") from exc
@@ -225,9 +256,10 @@ def _kokoro_model():
     local_files = (config_path.is_file(), model_path.is_file())
     if any(local_files) and not all(local_files):
         raise RuntimeError(f"incomplete Kokoro model files in {model_dir}")
-    if all(local_files):
-        return KModel(config=str(config_path), model=str(model_path)).to("cpu").eval()
-    return KModel().to("cpu").eval()
+    with _torch_mmap_load(torch):
+        if all(local_files):
+            return KModel(config=str(config_path), model=str(model_path)).to("cpu").eval()
+        return KModel().to("cpu").eval()
 
 
 def _kokoro_pipeline(*, lang_code: str = "a", model: Any = None):

@@ -37,3 +37,9 @@ backend/data/*.db-shm
 backend/data/english/audio/
 backend/data/english/passages/
 backend/data/audits/
+
+# Kokoro TTS 模型资产：kokoro-v1_0.pth 约 320M，超 Gitee 单文件 100M 上限，不能入库；
+# 28 个音色 voices/*.pt 也一并排除。丢了用下面的脚本重装（模型走 HF 镜像，音色走 jsdelivr）：
+#     HF_ENDPOINT=https://hf-mirror.com backend/.venv/bin/python \
+#         backend/scripts/english/install_english_kokoro_voices.py
+backend/data/english/kokoro/

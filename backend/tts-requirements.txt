@@ -1,3 +1,12 @@
+# 本机安装口径（2026-08-30）：/root/.pip/pip.conf 和 /root/.curlrc 都配了
+# ga.dp.tech:8118 代理，那个代理返 503 "Too many open connections"——pip 会静默
+# 装不上任何东西，curl 则一律返回 000。绕开它，别去改用户的配置文件：
+#     PIP_CONFIG_FILE=/dev/null backend/.venv/bin/pip install --no-cache-dir \
+#       -i https://mirrors.aliyun.com/pypi/simple/ -r backend/tts-requirements.txt
+#     curl --noproxy '*' ...
+# 绕开代理后本机直连是通的（pypi / github / jsdelivr / 阿里镜像都 200），只有
+# huggingface.co 真被墙（用 HF_ENDPOINT=https://hf-mirror.com），IPv6 确实没有。
+
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 edge-tts==7.2.3
@@ -9,4 +18,18 @@ thinc==8.2.5
 blis==0.7.11
 numpy==1.26.4
 soundfile==0.13.1
-vendor/en_core_web_sm-3.8.0-py3-none-any.whl
+
+# spacy 词性模型：原先放在 backend/vendor/ 的 3.8.0 轮子已随仓库清理删掉。当前装的
+# 是 HF 镜像上的 3.7.1（当时误判 github 不可达才退到这个版本）：
+#     curl --noproxy '*' -L -o /tmp/en_core_web_sm-3.7.1-py3-none-any.whl \
+#       https://hf-mirror.com/spacy/en_core_web_sm/resolve/main/en_core_web_sm-any-py3-none-any.whl
+#     pip install --no-deps /tmp/en_core_web_sm-3.7.1-py3-none-any.whl
+# 必须带 --no-deps：这个模型声明 spacy<3.8.0，会和上面钉的 3.8.0 打架。实测
+# spacy 3.8.0 加载 3.7.1 模型只是打一条 W095 警告，misaki 的 G2P 词性判别正常
+# （"I read a book" 的 read 仍标成 VBD）。文件名必须改成上面这种带版本号的形式，
+# 否则 pip 报 "not a valid wheel filename"。
+#
+# 想彻底消掉那条版本警告就换官方 3.8.0（github 加 --noproxy '*' 是通的），这样
+# 也不再需要 --no-deps：
+#     pip install https://github.com/explosion/spacy-models/releases/download\
+#       /en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
