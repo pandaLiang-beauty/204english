@@ -22,7 +22,7 @@ from .platform.security import client_ip
 
 
 def _cors_origins() -> list[str]:
-    port = os.getenv("STUDY_FRONTEND_PORT", "5103")
+    port = os.getenv("STUDY_FRONTEND_PORT", "5204")
     configured = {
         value.strip().rstrip("/")
         for value in os.getenv("STUDY_ALLOWED_ORIGINS", "").split(",")

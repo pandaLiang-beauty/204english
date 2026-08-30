@@ -154,9 +154,9 @@ class FrontendProxyHandler(BaseHTTPRequestHandler):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Serve frontend/dist and proxy /api to the local backend without Docker/nginx.")
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--backend", default="http://127.0.0.1:8103")
+    parser.add_argument("--backend", default="http://127.0.0.1:8204")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=5103)
+    parser.add_argument("--port", type=int, default=5204)
     parser.add_argument("--base-path", default="")
     return parser
 
@@ -170,7 +170,7 @@ def main() -> int:
     if backend.scheme not in {"http", ""}:
         raise SystemExit("Only http backend URLs are supported")
     host = backend.hostname or "127.0.0.1"
-    port = backend.port or 8103
+    port = backend.port or 8204
     FrontendProxyHandler.static_root = static_root
     FrontendProxyHandler.backend_host = host
     FrontendProxyHandler.backend_port = port

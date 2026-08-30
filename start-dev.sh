@@ -10,9 +10,9 @@ if [[ -f "$ROOT_DIR/.env.local" ]]; then
 fi
 
 BACKEND_HOST="${STUDY_BACKEND_HOST:-127.0.0.1}"
-BACKEND_PORT="${STUDY_BACKEND_PORT:-8113}"
+BACKEND_PORT="${STUDY_BACKEND_PORT:-8204}"
 FRONTEND_HOST="${STUDY_FRONTEND_HOST:-127.0.0.1}"
-FRONTEND_PORT="${STUDY_FRONTEND_PORT:-5103}"
+FRONTEND_PORT="${STUDY_FRONTEND_PORT:-5204}"
 export STUDY_BACKEND_HOST="$BACKEND_HOST"
 export STUDY_BACKEND_PORT="$BACKEND_PORT"
 export STUDY_FRONTEND_HOST="$FRONTEND_HOST"
@@ -43,22 +43,26 @@ fi
 
 cd "$ROOT_DIR/backend"
 setsid .venv/bin/python -m uvicorn app.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" > server.log 2>&1 < /dev/null &
-for _ in $(seq 1 40); do
-  backend_pid="$(ss -ltnp 2>/dev/null | awk -v addr="$BACKEND_HOST:$BACKEND_PORT" 'index($0, addr) && match($0, /pid=[0-9]+/) { print substr($0, RSTART + 4, RLENGTH - 4); exit }')"
-  [[ -n "$backend_pid" ]] && break
-  sleep 0.25
+backend_pid=$!
+# 原来这里用 ss -ltnp 反查 pid，但这台机器没装 ss（只有 netstat），于是永远查不到，
+# 脚本会在这步报 "backend failed to start" 退出、前端根本起不来。改成直接用 $!（非交互
+# shell 没有作业控制，setsid 不会再 fork，$! 就是真身），就绪与否交给 curl 探活。
+# curl 必须带 --noproxy '*'：/root/.curlrc 里配的代理是坏的，否则一律返回 000。
+for _ in $(seq 1 60); do
+  curl --noproxy '*' -fs -o /dev/null "http://$BACKEND_HOST:$BACKEND_PORT/api/health" && break
+  sleep 0.5
 done
-[[ -n "${backend_pid:-}" ]] || { echo "backend failed to start" >&2; exit 1; }
+ps -p "$backend_pid" >/dev/null 2>&1 || { echo "backend failed to start（见 backend/server.log）" >&2; exit 1; }
 echo "$backend_pid" > "$ROOT_DIR/backend/server.pid"
 
 cd "$ROOT_DIR/frontend"
 setsid npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" > server.log 2>&1 < /dev/null &
-for _ in $(seq 1 40); do
-  frontend_pid="$(ss -ltnp 2>/dev/null | awk -v addr="$FRONTEND_HOST:$FRONTEND_PORT" 'index($0, addr) && match($0, /pid=[0-9]+/) { print substr($0, RSTART + 4, RLENGTH - 4); exit }')"
-  [[ -n "$frontend_pid" ]] && break
-  sleep 0.25
+frontend_pid=$!
+for _ in $(seq 1 60); do
+  curl --noproxy '*' -fs -o /dev/null "http://$FRONTEND_HOST:$FRONTEND_PORT/" && break
+  sleep 0.5
 done
-[[ -n "${frontend_pid:-}" ]] || { echo "frontend failed to start" >&2; exit 1; }
+ps -p "$frontend_pid" >/dev/null 2>&1 || { echo "frontend failed to start（见 frontend/server.log）" >&2; exit 1; }
 echo "$frontend_pid" > "$ROOT_DIR/frontend/server.pid"
 
 echo "english: backend http://$BACKEND_HOST:$BACKEND_PORT, frontend http://$FRONTEND_HOST:$FRONTEND_PORT/"

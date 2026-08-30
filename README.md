@@ -29,7 +29,7 @@ bash start-dev.sh
 bash check-health.sh
 ```
 
-打开 `http://127.0.0.1:5103/english/`。停止开发服务：
+打开 `http://127.0.0.1:5204/`。停止开发服务：
 
 ```bash
 bash stop-dev.sh

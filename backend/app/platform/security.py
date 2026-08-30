@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request
 
-DEFAULT_FRONTEND_PORT = "5103"
+DEFAULT_FRONTEND_PORT = "5204"
 WRITE_HEADER = "x-study-write"
 WRITE_HEADER_VALUE = "1"
 DEFAULT_TRUSTED_PROXY_CIDRS = ("127.0.0.1/32", "::1/128", "172.16.0.0/12")

@@ -23,8 +23,8 @@
 
 ## 端口
 
-- Backend: `127.0.0.1:8103`
-- Frontend: `127.0.0.1:5103/english/` (public entry: `http://193.112.97.187/english/`)
+- Backend: `127.0.0.1:8204`
+- Frontend: `127.0.0.1:5204/` (public entry: `https://204.xpliang.tech/`)
 
 ## 复习周期调度约定
 
@@ -46,4 +46,4 @@ Run in order:
 4. `cd frontend && npm run build`
 5. `cd backend && .venv/bin/python scripts/reliability_check.py`
 6. `git diff --check`
-7. `curl -fsS http://127.0.0.1:8103/api/health`
+7. `curl -fsS http://127.0.0.1:8204/api/health`
