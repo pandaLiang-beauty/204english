@@ -1,18 +1,8 @@
-export const SYSTEM_BASE_PATH = '/english'
-
-export function withSystemBase(path) {
-  const value = String(path || '')
-  if (!value.startsWith('/') || value === SYSTEM_BASE_PATH || value.startsWith(`${SYSTEM_BASE_PATH}/`)) {
-    return value
-  }
-  return `${SYSTEM_BASE_PATH}${value}`
-}
-
 export async function request(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase()
   const writeHeaders = method === 'GET' || method === 'HEAD' ? {} : { 'X-Study-Write': '1' }
   const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData
-  const response = await fetch(withSystemBase(path), {
+  const response = await fetch(path, {
     ...options,
     credentials: 'include',
     headers: {

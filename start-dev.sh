@@ -10,7 +10,7 @@ if [[ -f "$ROOT_DIR/.env.local" ]]; then
 fi
 
 BACKEND_HOST="${STUDY_BACKEND_HOST:-127.0.0.1}"
-BACKEND_PORT="${STUDY_BACKEND_PORT:-8103}"
+BACKEND_PORT="${STUDY_BACKEND_PORT:-8113}"
 FRONTEND_HOST="${STUDY_FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${STUDY_FRONTEND_PORT:-5103}"
 export STUDY_BACKEND_HOST="$BACKEND_HOST"
@@ -61,4 +61,4 @@ done
 [[ -n "${frontend_pid:-}" ]] || { echo "frontend failed to start" >&2; exit 1; }
 echo "$frontend_pid" > "$ROOT_DIR/frontend/server.pid"
 
-echo "english: backend http://$BACKEND_HOST:$BACKEND_PORT, frontend http://$FRONTEND_HOST:$FRONTEND_PORT/english/"
+echo "english: backend http://$BACKEND_HOST:$BACKEND_PORT, frontend http://$FRONTEND_HOST:$FRONTEND_PORT/"

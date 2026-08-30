@@ -7,19 +7,19 @@ export const englishNavigation = {
     { value: 'stats', label: '统计', icon: 'BarChart3' }
   ],
   pathViews: {
-    '/english': 'review',
-    '/english/review': 'review',
-    '/english/library': 'library',
-    '/english/passages': 'passages',
-    '/english/create': 'create',
-    '/english/stats': 'stats'
+    '/': 'review',
+    '/review': 'review',
+    '/library': 'library',
+    '/passages': 'passages',
+    '/create': 'create',
+    '/stats': 'stats'
   },
   viewPaths: {
-    review: '/english',
-    library: '/english/library',
-    passages: '/english/passages',
-    create: '/english/create',
-    stats: '/english/stats'
+    review: '/',
+    library: '/library',
+    passages: '/passages',
+    create: '/create',
+    stats: '/stats'
   },
   activeNav(view) {
     return view === 'create' ? 'passages' : view

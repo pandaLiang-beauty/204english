@@ -7,9 +7,10 @@ const englishRoutes = Object.keys(englishNavigation.pathViews).map(path => ({ pa
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/english' },
-    { path: '/stats', redirect: '/english/stats' },
     ...englishRoutes,
-    { path: '/:pathMatch(.*)*', redirect: '/english' }
+    // 旧地址兼容：路径前缀从 /english 拉平到 / 之前存下的书签仍然可用。
+    { path: '/english', redirect: '/' },
+    { path: '/english/:rest(.*)', redirect: to => `/${to.params.rest}` },
+    { path: '/:pathMatch(.*)*', redirect: '/' }
   ]
 })

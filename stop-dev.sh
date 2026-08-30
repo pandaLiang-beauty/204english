@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="${STUDY_PROJECT_ROOT:-/root/sysStuByAI/204english}"
-BACKEND_PORT="${STUDY_BACKEND_PORT:-8103}"
+BACKEND_PORT="${STUDY_BACKEND_PORT:-8113}"
 FRONTEND_PORT="${STUDY_FRONTEND_PORT:-5103}"
 
 for pid_file in "$ROOT_DIR/backend/server.pid" "$ROOT_DIR/frontend/server.pid"; do
