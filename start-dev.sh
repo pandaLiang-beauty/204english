@@ -19,6 +19,7 @@ BACKEND_HOST="${STUDY_BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${STUDY_BACKEND_PORT:-8204}"
 FRONTEND_HOST="${STUDY_FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${STUDY_FRONTEND_PORT:-5204}"
+PUBLIC_BASE_PATH="${STUDY_PUBLIC_BASE_PATH:-/english}"
 export STUDY_BACKEND_HOST="$BACKEND_HOST"
 export STUDY_BACKEND_PORT="$BACKEND_PORT"
 export STUDY_FRONTEND_HOST="$FRONTEND_HOST"
@@ -62,13 +63,22 @@ ps -p "$backend_pid" >/dev/null 2>&1 || { echo "backend failed to start（见 ba
 echo "$backend_pid" > "$ROOT_DIR/backend/server.pid"
 
 cd "$ROOT_DIR/frontend"
-setsid npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" > server.log 2>&1 < /dev/null &
+# The public entry is intentionally static now. Retain this filename so the
+# existing local start command keeps working without reviving a Vite/HMR server.
+npm run build
+cd "$ROOT_DIR"
+setsid "$ROOT_DIR/backend/.venv/bin/python" "$ROOT_DIR/scripts/local_frontend_proxy.py" \
+  --root "$ROOT_DIR/frontend/dist" \
+  --backend "$STUDY_LOCAL_BACKEND" \
+  --host "$FRONTEND_HOST" \
+  --port "$FRONTEND_PORT" \
+  --base-path "$PUBLIC_BASE_PATH" > "$ROOT_DIR/frontend/server.log" 2>&1 < /dev/null &
 frontend_pid=$!
 for _ in $(seq 1 60); do
-  curl --noproxy '*' -fs -o /dev/null "http://$FRONTEND_HOST:$FRONTEND_PORT/" && break
+  curl --noproxy '*' -fs -o /dev/null "http://$FRONTEND_HOST:$FRONTEND_PORT/healthz" && break
   sleep 0.5
 done
 ps -p "$frontend_pid" >/dev/null 2>&1 || { echo "frontend failed to start（见 frontend/server.log）" >&2; exit 1; }
 echo "$frontend_pid" > "$ROOT_DIR/frontend/server.pid"
 
-echo "english: backend http://$BACKEND_HOST:$BACKEND_PORT, frontend http://$FRONTEND_HOST:$FRONTEND_PORT/"
+echo "english: backend http://$BACKEND_HOST:$BACKEND_PORT, static frontend http://$FRONTEND_HOST:$FRONTEND_PORT/"

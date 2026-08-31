@@ -134,11 +134,11 @@ systemctl restart "$BACKEND_SERVICE"
 systemctl restart "$FRONTEND_SERVICE"
 
 for _ in $(seq 1 30); do
-  curl -fsS "http://$BACKEND_HOST:$BACKEND_PORT/api/health" >/dev/null 2>&1 && break
+  curl --noproxy '*' -fsS "http://$BACKEND_HOST:$BACKEND_PORT/api/health" >/dev/null 2>&1 && break
   sleep 1
 done
-curl -fsS "http://$BACKEND_HOST:$BACKEND_PORT/api/health"
+curl --noproxy '*' -fsS "http://$BACKEND_HOST:$BACKEND_PORT/api/health"
 printf '\n'
-curl -fsS "http://$FRONTEND_HOST:$FRONTEND_PORT/api/health"
+curl --noproxy '*' -fsS "http://$FRONTEND_HOST:$FRONTEND_PORT/api/health"
 printf '\n'
 echo "deployed english: http://$FRONTEND_HOST:$FRONTEND_PORT$PUBLIC_BASE_PATH/ (gateway: $PUBLIC_ORIGIN$PUBLIC_BASE_PATH/)"
