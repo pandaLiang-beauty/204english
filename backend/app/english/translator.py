@@ -12,6 +12,7 @@ from .translation_quality import translation_result_issues, validate_translation
 
 WORD_PATTERN = re.compile(r"[A-Za-z]+(?:['-][A-Za-z]+)*")
 BOLD_PATTERN = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+INLINE_CHINESE_ANNOTATION_PATTERN = re.compile(r"\[[^\]]*[\u4e00-\u9fff][^\]]*\]")
 ENGLISH_AI_PREFIX = "STUDY_ENGLISH_AI"
 
 
@@ -41,13 +42,29 @@ def _normalize_words(words: list[str] | None, sentence: str) -> list[str]:
     seen = set()
     result: list[str] = []
     for raw in candidates:
-        word = str(raw or "").strip()
+        # Historical focus markers occasionally include adjacent sentence
+        # punctuation (for example ``**bone-showing.**``).  That punctuation
+        # is not part of the word the model is asked to return, so retaining it
+        # here would make an otherwise correct response fail exact key matching.
+        word = str(raw or "").strip().strip(".,;:!?，。；：！？、()[]{}\"“”‘’")
         lowered = word.lower()
         if not word or lowered in seen:
             continue
         seen.add(lowered)
         result.append(word)
     return result[:40]
+
+
+def _translation_source(sentence: str) -> str:
+    """Return the English source that should be sent to translation tasks.
+
+    Focus markers are display metadata, while square brackets containing Chinese
+    are author annotations. Neither is part of the English sentence to translate.
+    English-only bracketed source content is retained (for example, citations).
+    """
+    cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", str(sentence or ""))
+    cleaned = INLINE_CHINESE_ANNOTATION_PATTERN.sub("", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def _strip_code_fence(text: str) -> str:
@@ -420,6 +437,54 @@ def _translate_sentence_only(sentence: str, *, feedback: str = "") -> str:
     return translation
 
 
+def _review_sentence_only(sentence: str, translation: str, *, feedback: str = "") -> str:
+    """Review a sentence translation without mixing in blocks or word cards."""
+    retry_feedback = str(feedback or "").strip()
+    feedback_note = (
+        "上一次结果被本地检查拒绝，原因是："
+        f"{retry_feedback}。只修正与该问题有关的中文译文。\n\n"
+        if retry_feedback
+        else ""
+    )
+    payload = _json_from_chat(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "你是英汉翻译终审编辑。只核对英文原句与一条中文译文是否语义准确、自然、完整。"
+                    "不要做分块、重点词释义、讲解或格式设计。只输出 JSON。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "返回 JSON：{\"sentence_translation\":\"终审后的中文译文\"}\n"
+                    "规则：\n"
+                    "1. 先逐项核对主谓宾、否定、比较、条件、转折、因果、指代、时态和范围。\n"
+                    "2. 遇到习语、隐喻和搭配，保留原句逻辑关系并译成自然中文；不能把“陷入某种状态”改成“消失”等不同含义。\n"
+                    "3. 草稿已经正确时，原样返回，不要为了文风而随意改写。\n"
+                    "4. 不保留普通英文词；不输出解释、评分、Markdown 或额外字段。\n\n"
+                    f"{feedback_note}"
+                    f"英文原句：{sentence}\n"
+                    f"中文草稿：{translation}"
+                ),
+            },
+        ],
+        user_message="AI 翻译终审返回格式异常，请重试。",
+        diagnostic_label="sentence review JSON",
+        expected_schema='{"sentence_translation": "自然完整中文译文"}',
+    )
+    reviewed = str(
+        payload.get("sentence_translation")
+        or payload.get("natural_translation")
+        or payload.get("translation")
+        or ""
+    ).strip()
+    if not reviewed:
+        raise AIProviderError("AI 翻译终审返回了空译文")
+    return reviewed
+
+
 def _translate_words_only(sentence: str, words: list[str], *, feedback: str = "") -> dict:
     if not words:
         return {"items": [], "word_translations": {}, "word_tips": {}}
@@ -632,57 +697,84 @@ def _valid_translation_candidate(sentence: str, words: list[str], result: dict[s
 
 
 def translate_text(text: str, *, words: list[str] | None = None, feedback: str = "") -> dict:
-    sentence = str(text or "").strip()
-    if not sentence:
+    source_sentence = _translation_source(text)
+    if not source_sentence:
         raise AIProviderError("句子不能为空")
-    selected_words = _normalize_words(words, sentence)
-    try:
-        candidate = _translate_combined(sentence, selected_words, feedback=feedback)
-    except AIProviderError as first_error:
-        retry_feedback = str(first_error.diagnostic or first_error.user_message)[:500]
-        if "combined translation json parse failed" not in retry_feedback.casefold():
-            raise
-        candidate = _translate_combined(sentence, selected_words, feedback=retry_feedback)
-        for result in (candidate, _single_segment_fallback(sentence, candidate)):
-            ok, _ = _valid_translation_candidate(sentence, selected_words, result)
-            if ok:
-                return result
-        raise AIProviderError(
-            "AI 翻译结果未通过本地校验，请重试。",
-            "combined translation retry remained invalid",
-        ) from first_error
+    selected_words = _normalize_words(words, str(text or ""))
 
-    candidate_issues = translation_result_issues(candidate, selected_words, source_text=sentence)
+    # V2 keeps semantic work separate from presentation work. The Chinese
+    # sentence is locked before either word cards or reading blocks are made.
     try:
-        reviewed = _review_and_repair_combined(
-            sentence,
-            selected_words,
-            candidate,
-            candidate_issues,
-        )
+        final_translation = _translate_sentence_only(source_sentence, feedback=feedback)
     except AIProviderError:
-        for result in (candidate, _single_segment_fallback(sentence, candidate)):
-            ok, _ = _valid_translation_candidate(sentence, selected_words, result)
-            if ok:
-                return result
         raise
+    try:
+        final_translation = _review_sentence_only(source_sentence, final_translation)
+    except AIProviderError:
+        # Keep a successful focused draft when the non-essential reviewer is
+        # temporarily unavailable; remaining deterministic checks still apply.
+        pass
 
-    checked_results = (
-        reviewed,
-        _single_segment_fallback(sentence, reviewed),
-        candidate,
-        _single_segment_fallback(sentence, candidate),
+    word_payload = _translate_words_only(source_sentence, selected_words)
+    segment_payload = segment_translation(source_sentence, final_translation)
+
+    def build_result() -> dict:
+        return {
+            "items": word_payload.get("items") or [],
+            "word_translations": word_payload.get("word_translations") or {},
+            "word_tips": word_payload.get("word_tips") or {},
+            "sentence_translation": final_translation,
+            "sentence_segments": segment_payload.get("sentence_segments") or [],
+            "translation_segments": segment_payload.get("translation_segments") or [],
+        }
+
+    result = build_result()
+    issues = translation_result_issues(result, selected_words, source_text=source_sentence)
+    if issues:
+        issue_feedback = "; ".join(issues[:6])
+        if any(issue.startswith(("missing_word_translation:", "bad_word_translation_format:", "bad_tip:")) for issue in issues):
+            word_payload = _translate_words_only(source_sentence, selected_words, feedback=issue_feedback)
+        if any(
+            not issue.startswith((
+                "empty_sentence_translation",
+                "segmented_sentence_translation",
+                "literal_translation:",
+                "missing_word_translation:",
+                "bad_word_translation_format:",
+                "bad_tip:",
+            ))
+            for issue in issues
+        ):
+            segment_payload = segment_translation(source_sentence, final_translation, feedback=issue_feedback)
+        if any(issue.startswith(("empty_sentence_translation", "segmented_sentence_translation", "literal_translation:")) for issue in issues):
+            final_translation = _review_sentence_only(source_sentence, final_translation, feedback=issue_feedback)
+        result = build_result()
+
+    ok, reason = _valid_translation_candidate(source_sentence, selected_words, result)
+    if ok:
+        return result
+    sentence_or_word_issue = any(
+        issue.startswith((
+            "empty_sentence_translation",
+            "segmented_sentence_translation",
+            "literal_translation:",
+            "missing_word_translation:",
+            "bad_word_translation_format:",
+            "bad_tip:",
+        ))
+        for issue in translation_result_issues(result, selected_words, source_text=source_sentence)
     )
-    reasons: list[str] = []
-    for result in checked_results:
-        ok, reason = _valid_translation_candidate(sentence, selected_words, result)
-        if ok:
-            return result
-        if reason and reason not in reasons:
-            reasons.append(reason)
+    if not sentence_or_word_issue:
+        # Reading blocks are supplementary presentation data. If a focused
+        # segmentation request cannot satisfy the strict block rules, preserve
+        # the independently validated translation and word cards as one block.
+        fallback = _single_segment_fallback(source_sentence, result)
+        fallback_ok, _ = _valid_translation_candidate(source_sentence, selected_words, fallback)
+        if fallback_ok:
+            return fallback
     raise AIProviderError(
         "AI 翻译结果未通过本地校验，请重试。",
-        f"reviewed translation validation failed: {'; '.join(reasons[:4]) or 'unknown'}",
+        f"split translation validation failed: {reason or 'unknown'}",
     )
 
 

@@ -145,6 +145,7 @@ BORN_MODIFIER_PREFIXES = (
 )
 FACT_THAT_PATTERN = re.compile(r"\bfact\s+that\b", re.I)
 WORD_PATTERN = re.compile(r"[A-Za-z]+(?:['-][A-Za-z]+)*")
+BOLD_MARKER_PATTERN = re.compile(r"\*\*(.*?)\*\*", re.DOTALL)
 COMPLEX_SUBJECT_START_PATTERN = re.compile(
     r"^(?:the\s+)?(?:thought|idea|prospect|possibility|act|process|problem|challenge|task)\b",
     re.I,
@@ -183,6 +184,16 @@ def _is_standalone_born_modifier(text: str) -> bool:
 
 def _strip_trailing_punctuation(text: str) -> str:
     return str(text or "").strip().rstrip(".,;:!?，。；：！？、").strip()
+
+
+def _source_words_for_coverage(text: str) -> list[str]:
+    """Tokenize source text after removing display-only focus markers.
+
+    Markers can appear inside a hyphenated word (``non-**committal**``), where
+    tokenizing the raw display string incorrectly turns one source word into two.
+    """
+    normalized = BOLD_MARKER_PATTERN.sub(r"\1", str(text or ""))
+    return [word.casefold() for word in WORD_PATTERN.findall(normalized)]
 
 
 def _has_incomplete_english_suffix(text: str) -> bool:
@@ -234,7 +245,7 @@ def translation_result_issues(result: dict[str, Any], words: list[str], *, sourc
     elif len(sentence_segments) != len(translation_segments):
         issues.append("segment_count_mismatch")
     if source_text and sentence_segments:
-        source_words = [word.casefold() for word in WORD_PATTERN.findall(source_text)]
+        source_words = _source_words_for_coverage(source_text)
         segmented_words = [
             word.casefold()
             for word in WORD_PATTERN.findall(" ".join(str(item or "") for item in sentence_segments))

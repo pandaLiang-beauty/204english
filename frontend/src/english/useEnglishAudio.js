@@ -12,7 +12,14 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
   const recordedSentenceStarts = new WeakSet()
   const audioStatusRefreshTimers = new Set()
   const preloadWindowSize = 36
-  const preloadWarmupDelay = 180
+  // 预加载走「队列 + 固定并发」而不是按固定间隔一次性铺开：铺开时 20 句 × (1 条整句音频
+  // + 每个生词读音) 会同时有几十个 fetch 在飞，把 Cloudflare Tunnel 打满，浏览器侧直接
+  // TypeError: Failed to fetch（后端日志里那些请求其实都是 200），预加载全白做。
+  const preloadConcurrency = 3
+  const preloadStartDelay = 180
+  let preloadQueue = []
+  let preloadWorkers = 0
+  let preloadStartTimer = null
 
   function scheduleAudioStatusRefresh(delay = 25000) {
     if (typeof window === 'undefined') return
@@ -186,6 +193,12 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
   function resetPreloadWindow() {
     preloadWindowStart.value = 0
     preloadGeneration.value += 1
+    // 换页/换模式时把还没开工的任务丢掉，别让上一页的音频继续抢带宽。
+    preloadQueue = []
+    if (preloadStartTimer !== null) {
+      window.clearTimeout(preloadStartTimer)
+      preloadStartTimer = null
+    }
   }
 
   function schedulePreloadWindow(startIndex = preloadWindowStart.value) {
@@ -195,17 +208,53 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
     const end = Math.min(sentencesRef.value.length, begin + preloadWindowSize)
     for (let index = begin; index < end; index += 1) {
       const sentence = sentencesRef.value[index]
-      const delay = preloadWarmupDelay * (index - begin)
-      window.setTimeout(() => {
-        if (preloadGeneration.value !== generationSnapshot) return
-        preloadSentencePackage(sentence)
-      }, delay)
+      if (!sentence?.ui) continue
+      // 队列单位是「一个请求」而不是「一句」：按句排队的话，一句自己就带着整句音频 +
+      // 当前生词两个请求在飞，3 个 worker 实际会到 6 并发。先整句音频再本句生词，
+      // 保证靠前的句子整包先就绪。
+      enqueuePreload(generationSnapshot, sentence, '')
+      Object.keys(sentence.pronunciations || {}).forEach(word => {
+        enqueuePreload(generationSnapshot, sentence, word)
+      })
+    }
+    startPreloadWorkers()
+  }
+
+  function enqueuePreload(generation, sentence, word) {
+    if (preloadQueue.some(task => task.sentence === sentence && task.word === word)) return
+    preloadQueue.push({ generation, sentence, word })
+  }
+
+  function startPreloadWorkers() {
+    if (!preloadQueue.length || preloadStartTimer !== null) return
+    // 延后一点再开工，把首屏那一下让给正在渲染的句子和它自己的按需播放。
+    preloadStartTimer = window.setTimeout(() => {
+      preloadStartTimer = null
+      while (preloadWorkers < preloadConcurrency && preloadQueue.length) {
+        preloadWorkers += 1
+        void runPreloadWorker()
+      }
+    }, preloadStartDelay)
+  }
+
+  async function runPreloadWorker() {
+    try {
+      while (preloadQueue.length) {
+        const task = preloadQueue.shift()
+        if (task.generation !== preloadGeneration.value) continue
+        await runPreloadTask(task)
+      }
+    } finally {
+      preloadWorkers -= 1
     }
   }
 
-  function preloadSentencePackage(sentence) {
-    preloadSentenceAudio(sentence)
-    preloadWordPronunciations(sentence)
+  async function runPreloadTask({ sentence, word }) {
+    if (word) {
+      await cacheWordAudioBlob(sentence, word, sentence.pronunciations?.[word])
+      return
+    }
+    await preloadSentenceAudio(sentence)
   }
 
   function preloadSentenceAudio(sentence) {
@@ -223,24 +272,6 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
       }
     })()
     return sentence.ui.audioPreloadPromise
-  }
-
-  function preloadWordPronunciations(sentence) {
-    if (!sentence || sentence.ui.wordPreloadPromise) return sentence?.ui?.wordPreloadPromise
-    const entries = Object.entries(sentence.pronunciations || {})
-    if (!entries.length) return undefined
-    sentence.ui.wordPreloadPromise = (async () => {
-      try {
-        for (const [word, url] of entries) {
-          await cacheWordAudioBlob(sentence, word, url)
-        }
-      } catch (err) {
-        console.warn('预加载单词读音失败', err)
-      } finally {
-        sentence.ui.wordPreloadPromise = null
-      }
-    })()
-    return sentence.ui.wordPreloadPromise
   }
 
   async function fetchBinaryBlob(url) {

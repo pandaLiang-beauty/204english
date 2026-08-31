@@ -101,7 +101,7 @@ def _words_for_row(row: dict[str, Any]) -> list[str]:
     seen = set()
     result: list[str] = []
     for word in words:
-        clean = str(word or "").strip()
+        clean = str(word or "").strip().strip(".,;:!?，。；：！？、()[]{}\"“”‘’")
         lowered = clean.lower()
         if clean and lowered not in seen:
             seen.add(lowered)

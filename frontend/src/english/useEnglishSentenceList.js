@@ -304,8 +304,7 @@ export function useEnglishSentenceList(context = {}) {
       cachedAudioUrl: sentenceAudioChanged ? '' : (previousUi.cachedAudioUrl || ''),
       pendingCachedAudioUrl: sentenceAudioChanged ? '' : (previousUi.pendingCachedAudioUrl || ''),
       wordAudioCache: previousUi.wordAudioCache || {},
-      audioPreloadPromise: null,
-      wordPreloadPromise: null
+      audioPreloadPromise: null
     }
   }
 
@@ -397,9 +396,8 @@ export function useEnglishSentenceList(context = {}) {
         return
       }
 
-      await fetchActivity({ includeHeatmap: Boolean(context.isStats?.()) })
-
       if (context.isStats?.()) {
+        await fetchActivity({ includeHeatmap: true })
         audioControls().disposeSentenceCaches?.(sentences.value)
         sentences.value = []
         return
@@ -426,7 +424,15 @@ export function useEnglishSentenceList(context = {}) {
               resume: shouldResumeRound
             }
       )
-      let data = await englishApi.sentences(sentenceParams)
+      // stats 与句子列表之间没有数据依赖，别串行 await：后端本身只要 77ms / 353ms，
+      // 但每个请求过 Cloudflare Tunnel 要多付约一个往返，串起来首屏就白等一截。
+      // 并发发出、一起等；下面 total.value = data.total 在 Promise.all 之后执行，
+      // 仍然覆盖 fetchActivity 里那次 stats.active 赋值，取值顺序不变。
+      const [, firstPage] = await Promise.all([
+        fetchActivity(),
+        englishApi.sentences(sentenceParams)
+      ])
+      let data = firstPage
       const previousByKey = new Map(sentences.value.map(sentence => [sentenceInstanceKey(sentence), sentence]))
       let loadedItems = (data.items || []).map(item => (
         decorateSentenceRecord(item, previousByKey.get(sentenceInstanceKey(item)))

@@ -9,8 +9,8 @@
 <script setup>
 import { defineAsyncComponent, onMounted, ref } from 'vue'
 import { platformApi } from './platform/api'
+import LoginView from './platform/components/LoginView.vue'
 
-const LoginView = defineAsyncComponent(() => import('./platform/components/LoginView.vue'))
 const StudyApp = defineAsyncComponent(() => import('./StudyApp.vue'))
 
 const authChecked = ref(false)
@@ -25,14 +25,23 @@ async function onLogout() {
   currentUser.value = null
 }
 
-onMounted(async () => {
+async function checkAuthentication() {
+  // 登录页是唯一的恢复入口，不能因为隧道里的请求或动态模块卡住而永久停在加载态。
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 8000)
   try {
-    const result = await platformApi.me()
+    const result = await platformApi.me({ signal: controller.signal })
     currentUser.value = result.user
   } catch {
+    // 401、网络故障和超时都应该让用户得到可操作的登录表单。
     currentUser.value = null
   } finally {
+    window.clearTimeout(timer)
     authChecked.value = true
   }
+}
+
+onMounted(() => {
+  void checkAuthentication()
 })
 </script>

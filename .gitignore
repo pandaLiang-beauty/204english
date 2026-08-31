@@ -23,6 +23,9 @@ frontend/node_modules/
 *.log
 *.pid
 
+# 本机密钥覆盖层。它在 .env.local 之后加载，绝不能提交。
+.env.secrets.local
+
 # SQLite 边车文件：提交前用 PRAGMA wal_checkpoint(TRUNCATE) 折进 study.db，
 # 这两个文件本身是瞬时状态，入库反而会导致两端打开数据库时冲突。
 backend/data/*.db-wal

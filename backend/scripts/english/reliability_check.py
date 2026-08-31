@@ -216,26 +216,20 @@ def check_library_metadata() -> None:
     assert metrics[2]["linked_words"][0]["key"] == "shared", metrics
 
 
-def check_two_stage_translation_pipeline() -> None:
-    sentence = "People often complain that **plastics** are too **durable**."
+def check_split_translation_pipeline() -> None:
+    sentence = "People [人们] often complain that **plastics** are too **durable**."
     responses = [
+        {"sentence_translation": "人们抱怨塑料太耐用。"},
+        {"sentence_translation": "人们常常抱怨塑料过于耐用。"},
         {
-            "sentence_translation": "人们抱怨塑料太耐用。",
-            "sentence_segments": ["People often complain that plastics are too durable."],
-            "translation_segments": ["人们抱怨塑料太耐用。"],
             "words": [
                 {"word": "plastics", "base_translation": "塑料", "context_translation": "塑料", "tip": ""},
-                {"word": "durable", "base_translation": "耐用的", "context_translation": "耐用的", "tip": ""},
+                {"word": "durable", "base_translation": "耐用的", "context_translation": "难以降解的", "tip": ""},
             ],
         },
         {
-            "sentence_translation": "人们常常抱怨塑料过于耐用。",
             "sentence_segments": ["People often complain that plastics are too durable."],
             "translation_segments": ["人们常常抱怨塑料过于耐用。"],
-            "words": [
-                {"word": "plastics", "base_translation": "塑料", "context_translation": "塑料制品", "tip": ""},
-                {"word": "durable", "base_translation": "耐用的", "context_translation": "难以降解的", "tip": ""},
-            ],
         },
     ]
     calls: list[list[dict]] = []
@@ -250,9 +244,50 @@ def check_two_stage_translation_pipeline() -> None:
         result = translator.translate_text(sentence, words=["plastics", "durable"])
     finally:
         translator._chat_completion = original_chat
-    assert len(calls) == 2, len(calls)
+    assert len(calls) == 4, len(calls)
     assert result["sentence_translation"] == "人们常常抱怨塑料过于耐用。", result
     assert result["word_translations"]["durable"].endswith("句中：难以降解的"), result
+    first_prompt = calls[0][-1]["content"]
+    assert "People often complain that plastics are too durable." in first_prompt, first_prompt
+    assert "[人们]" not in first_prompt and "**plastics**" not in first_prompt, first_prompt
+
+    hyphen_marker_result = {
+        "sentence_translation": "一种不置可否的凝视成了常态。",
+        "sentence_segments": ["A non-committal blank stare became the norm."],
+        "translation_segments": ["一种不置可否的凝视成了常态。"],
+        "word_translations": {},
+        "word_tips": {},
+    }
+    hyphen_issues = translator.translation_result_issues(
+        hyphen_marker_result,
+        [],
+        source_text="A non-**committal** blank stare became the norm.",
+    )
+    assert "source_segment_coverage_mismatch" not in hyphen_issues, hyphen_issues
+
+    fallback_responses = [
+        {"sentence_translation": "人们常常抱怨塑料过于耐用。"},
+        {"sentence_translation": "人们常常抱怨塑料过于耐用。"},
+        responses[2],
+        {"sentence_segments": [], "translation_segments": []},
+        {"sentence_segments": [], "translation_segments": []},
+    ]
+    fallback_calls = 0
+
+    def fallback_chat(_messages, **_kwargs):
+        nonlocal fallback_calls
+        response = fallback_responses[fallback_calls]
+        fallback_calls += 1
+        return json.dumps(response, ensure_ascii=False)
+
+    translator._chat_completion = fallback_chat
+    try:
+        fallback_result = translator.translate_text(sentence, words=["plastics", "durable"])
+    finally:
+        translator._chat_completion = original_chat
+    assert fallback_calls == 5, fallback_calls
+    assert fallback_result["sentence_segments"] == ["People often complain that plastics are too durable."], fallback_result
+    assert fallback_result["translation_segments"] == ["人们常常抱怨塑料过于耐用。"], fallback_result
 
     failed_calls = 0
 
@@ -1087,7 +1122,7 @@ CHECKS = (
     check_kokoro_voice_catalog,
     check_dedicated_ai_configuration,
     check_library_metadata,
-    check_two_stage_translation_pipeline,
+    check_split_translation_pipeline,
     check_edit_translation_invalidation,
     check_startup_translation_recovery_scans_only_pending_sentences,
     check_audio_voice_settings,

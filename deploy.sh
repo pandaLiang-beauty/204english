@@ -18,6 +18,12 @@ if [[ -f "$ROOT_DIR/.env.local" ]]; then
   source "$ROOT_DIR/.env.local"
   set +a
 fi
+if [[ -f "$ROOT_DIR/.env.secrets.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env.secrets.local"
+  set +a
+fi
 
 BACKEND_HOST="${STUDY_BACKEND_HOST:-$BACKEND_HOST}"
 BACKEND_PORT="${STUDY_BACKEND_PORT:-$BACKEND_PORT}"
@@ -87,6 +93,7 @@ After=network.target
 Type=simple
 WorkingDirectory=$ROOT_DIR/backend
 EnvironmentFile=-$ROOT_DIR/.env.local
+EnvironmentFile=-$ROOT_DIR/.env.secrets.local
 Environment=PYTHONUNBUFFERED=1
 Environment=STUDY_BACKEND_HOST=$BACKEND_HOST
 Environment=STUDY_BACKEND_PORT=$BACKEND_PORT

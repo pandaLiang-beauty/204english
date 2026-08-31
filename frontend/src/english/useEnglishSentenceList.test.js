@@ -718,3 +718,90 @@ test('passage flush waits for the active autosave request', async () => {
     console.warn = originalWarn
   }
 })
+
+test('首屏的 stats 与句子列表并发请求，不再白等一个隧道往返', async () => {
+  const originals = { stats: englishApi.stats, sentences: englishApi.sentences }
+  let sentencesCalled = false
+  let releaseStats
+  // stats 故意卡住：如果这两个请求还是串行的，句子请求永远发不出去，这个测试会挂死。
+  const statsGate = new Promise(resolve => {
+    releaseStats = resolve
+  })
+
+  englishApi.stats = async () => {
+    await statsGate
+    return { active: 4 }
+  }
+  englishApi.sentences = async () => {
+    sentencesCalled = true
+    releaseStats()
+    return { items: [roundSentence(1)], total: 1, page: 1 }
+  }
+
+  try {
+    const list = useEnglishSentenceList({ isReview: () => true })
+    await list.load()
+    assert.equal(sentencesCalled, true)
+    assert.deepEqual(list.sentences.value.map(item => item.id), [1])
+    // 句子响应里的 total 必须盖住 fetchActivity 写进去的 stats.active，取值顺序不能被并发打乱。
+    assert.equal(list.total.value, 1)
+  } finally {
+    Object.assign(englishApi, originals)
+  }
+})
+
+test('音频预加载同时最多 3 个请求在飞，不会把链路打满', async () => {
+  const originalWindow = globalThis.window
+  const originalFetch = globalThis.fetch
+  const originalCreateObjectURL = URL.createObjectURL
+  const originalRevokeObjectURL = URL.revokeObjectURL
+
+  let inFlight = 0
+  let peak = 0
+  let started = 0
+  const pending = []
+
+  globalThis.window = { setTimeout, clearTimeout }
+  URL.createObjectURL = () => 'blob:stub'
+  URL.revokeObjectURL = () => {}
+  globalThis.fetch = () => {
+    inFlight += 1
+    started += 1
+    peak = Math.max(peak, inFlight)
+    return new Promise(resolve => {
+      pending.push(() => {
+        inFlight -= 1
+        resolve({ ok: true, blob: async () => ({}) })
+      })
+    })
+  }
+
+  // 12 句 × (1 条整句音频 + 2 个生词读音) = 36 个请求；旧实现会几乎同时全部发出。
+  const sentences = Array.from({ length: 12 }, (_, index) => ({
+    ...roundSentence(index + 1),
+    pronunciations: {
+      alpha: `/api/english/pronunciations/${index}/alpha.mp3`,
+      beta: `/api/english/pronunciations/${index}/beta.mp3`
+    },
+    ui: { cachedAudioUrl: '', pendingCachedAudioUrl: '', wordAudioCache: {}, audioPreloadPromise: null }
+  }))
+
+  try {
+    const controls = useEnglishAudio({ value: sentences })
+    controls.schedulePreloadWindow(0)
+    await new Promise(resolve => setTimeout(resolve, 250))
+    assert.equal(peak <= 3, true, `预加载峰值并发 ${peak}，应当不超过 3`)
+
+    for (let guard = 0; pending.length && guard < 200; guard += 1) {
+      pending.shift()()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    assert.equal(peak <= 3, true, `放行过程中峰值并发 ${peak}，应当不超过 3`)
+    assert.equal(started, 36)
+  } finally {
+    globalThis.window = originalWindow
+    globalThis.fetch = originalFetch
+    URL.createObjectURL = originalCreateObjectURL
+    URL.revokeObjectURL = originalRevokeObjectURL
+  }
+})

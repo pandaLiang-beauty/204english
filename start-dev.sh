@@ -8,6 +8,12 @@ if [[ -f "$ROOT_DIR/.env.local" ]]; then
   source "$ROOT_DIR/.env.local"
   set +a
 fi
+if [[ -f "$ROOT_DIR/.env.secrets.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env.secrets.local"
+  set +a
+fi
 
 BACKEND_HOST="${STUDY_BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${STUDY_BACKEND_PORT:-8204}"
