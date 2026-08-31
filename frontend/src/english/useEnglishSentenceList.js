@@ -1,6 +1,15 @@
 import { computed, ref } from 'vue'
 import { englishApi } from './api.js'
+import { createReviewEventQueue } from './createReviewEventQueue.js'
 import { markedWordsFromText } from './passageMarkdown.js'
+import {
+  applyTranslationToDraft,
+  emptySentenceDraft,
+  sentenceDraftPayload,
+  sentenceToDraft,
+  splitBulkSentences
+} from './sentenceDraft.js'
+import { sentenceInstanceKey } from './sentencePresentation.js'
 
 export function useEnglishSentenceList(context = {}) {
   const sentences = ref([])
@@ -18,20 +27,14 @@ export function useEnglishSentenceList(context = {}) {
   const appliedSearch = ref('')
   const sort = ref('smart')
   const createOpen = ref(false)
-  const draft = ref(emptyDraft())
+  const draft = ref(emptySentenceDraft())
   const bulkText = ref('')
   const bulkLoading = ref(false)
   const bulkMessage = ref('')
   const reviewRound = ref(null)
   const roundInitialized = ref(false)
   const translationRefreshTimers = new Map()
-  const reviewEventQueues = new Map()
   let roundBoundaryTimer = null
-
-  function sentenceInstanceKey(sentence) {
-    const roundItemId = Number(sentence?.review_round_item_id || 0)
-    return roundItemId > 0 ? `round-${roundItemId}` : `sentence-${Number(sentence?.id || 0)}`
-  }
 
   const pageCount = computed(() => Math.max(1, Math.ceil(total.value / Number(pageSize.value || 20))))
   const weakNetworkWords = computed(() => stats.value?.word_network?.weak_words || [])
@@ -45,151 +48,6 @@ export function useEnglishSentenceList(context = {}) {
   })
   const heatmapColumns = computed(() => Math.max(1, Math.ceil(heatmapCells.value.length / 7)))
   const bulkSentences = computed(() => splitBulkSentences(bulkText.value))
-
-  function emptyDraft() {
-    return {
-      text: '',
-      sentenceTranslation: '',
-      sentenceSegmentsText: '',
-      translationSegmentsText: '',
-      translationsText: '',
-      tipsText: ''
-    }
-  }
-
-  function splitBulkSentences(text = '') {
-    return String(text || '')
-      .split(/(?:\r?\n){2,}/)
-      .map(chunk => chunk.trim().replace(/\s+/g, ' '))
-      .filter(Boolean)
-  }
-
-  function stringifyMap(value) {
-    return Object.entries(value || {}).map(([key, text]) => `${key}=${text || ''}`).join('\n')
-  }
-
-  function parseMap(text) {
-    const output = {}
-    String(text || '').split(/\r?\n/).forEach(line => {
-      const trimmed = line.trim()
-      if (!trimmed) return
-      const index = trimmed.indexOf('=')
-      if (index <= 0) return
-      const key = trimmed.slice(0, index).trim()
-      if (!key) return
-      output[key] = trimmed.slice(index + 1).trim()
-    })
-    return output
-  }
-
-  function stringifySegments(value) {
-    return (Array.isArray(value) ? value : [])
-      .map(item => String(item || '').trim())
-      .filter(Boolean)
-      .join(' / ')
-  }
-
-  function parseSegments(text) {
-    return String(text || '')
-      .split(/\s*\/\s*/)
-      .map(item => item.trim().replace(/\s+/g, ' '))
-      .filter(Boolean)
-  }
-
-  function sentenceToDraft(sentence) {
-    return {
-      text: sentence?.text || '',
-      sentenceTranslation: sentence?.sentence_translation || '',
-      sentenceSegmentsText: stringifySegments(sentence?.sentence_segments || []),
-      translationSegmentsText: stringifySegments(sentence?.translation_segments || []),
-      translationsText: stringifyMap(sentence?.word_translations || {}),
-      tipsText: stringifyMap(sentence?.word_tips || {})
-    }
-  }
-
-  function payloadFromDraft(value) {
-    const wordTranslations = mergeMarkedWordsIntoTranslations(
-      value.text,
-      parseMap(value.translationsText)
-    )
-    return {
-      text: String(value.text || '').trim(),
-      sentence_translation: String(value.sentenceTranslation || '').trim(),
-      sentence_segments: parseSegments(value.sentenceSegmentsText),
-      translation_segments: parseSegments(value.translationSegmentsText),
-      word_translations: wordTranslations,
-      word_tips: filterMapToMarkedWords(value.text, parseMap(value.tipsText))
-    }
-  }
-
-  function mergeMarkedWordsIntoTranslations(text, translations) {
-    const source = translations || {}
-    const byNormalized = new Map(
-      Object.entries(source)
-        .map(([key, value]) => [key.trim().toLowerCase(), value])
-        .filter(([key]) => key)
-    )
-    const output = {}
-    for (const item of markedWordsFromText(text)) {
-      const word = String(item.word || '').trim()
-      const key = word.toLowerCase()
-      if (!word) continue
-      output[word] = byNormalized.get(key) || ''
-    }
-    return output
-  }
-
-  function filterMapToMarkedWords(text, mapping) {
-    const allowed = new Set(markedWordsFromText(text).map(item => String(item.word || '').trim().toLowerCase()))
-    return Object.fromEntries(
-      Object.entries(mapping || {}).filter(([key]) => allowed.has(String(key || '').trim().toLowerCase()))
-    )
-  }
-
-  function applyTranslationToDraft(target, result) {
-    if (!target || !result) return target
-    const wordTranslations = result.word_translations || {}
-    const wordTips = result.word_tips || {}
-    const hasWordTranslations = Object.keys(wordTranslations).length > 0
-    const hasWordTips = Object.keys(wordTips).length > 0
-    const sentenceSegments = result.sentence_segments || []
-    const translationSegments = result.translation_segments || []
-    return {
-      ...target,
-      sentenceTranslation: result.sentence_translation || target.sentenceTranslation || '',
-      sentenceSegmentsText: sentenceSegments.length ? stringifySegments(sentenceSegments) : target.sentenceSegmentsText,
-      translationSegmentsText: translationSegments.length ? stringifySegments(translationSegments) : target.translationSegmentsText,
-      translationsText: hasWordTranslations ? stringifyMap(wordTranslations) : target.translationsText,
-      tipsText: hasWordTips ? stringifyMap(wordTips) : target.tipsText
-    }
-  }
-
-  function sentenceTokens(text) {
-    const source = String(text || '')
-    const tokens = []
-    const regex = /\*\*([^*]+)\*\*/g
-    let last = 0
-    let match
-    while ((match = regex.exec(source))) {
-      if (match.index > last) tokens.push({ text: source.slice(last, match.index), focus: false })
-      tokens.push({ text: match[1], focus: true })
-      last = match.index + match[0].length
-    }
-    if (last < source.length) tokens.push({ text: source.slice(last), focus: false })
-    return tokens.length ? tokens : [{ text: source, focus: false }]
-  }
-
-  function plainSentenceText(text) {
-    return String(text || '').replace(/\*\*/g, '')
-  }
-
-  function hasTranslationContent(sentence) {
-    return Boolean(
-      String(sentence?.sentence_translation || '').trim()
-      || (sentence?.sentence_segments || []).length
-      || (sentence?.translation_segments || []).length
-    )
-  }
 
   function needsGeneratedTranslation(sentence) {
     if (sentence?.translation_pending) return true
@@ -238,47 +96,6 @@ export function useEnglishSentenceList(context = {}) {
       }
     }, delays[attempt])
     translationRefreshTimers.set(id, timer)
-  }
-
-  function segmentPairs(sentence) {
-    const sources = Array.isArray(sentence?.sentence_segments) ? sentence.sentence_segments : []
-    const targets = Array.isArray(sentence?.translation_segments) ? sentence.translation_segments : []
-    const count = Math.max(sources.length, targets.length)
-    if (!count) return []
-    return Array.from({ length: count }, (_, index) => ({
-      source: sources[index] || '',
-      target: targets[index] || ''
-    })).filter(pair => pair.source || pair.target)
-  }
-
-  function sentenceSegmentSources(sentence) {
-    return segmentPairs(sentence).map(pair => pair.source).filter(Boolean)
-  }
-
-  function sentenceSegmentTargets(sentence) {
-    return segmentPairs(sentence).map(pair => pair.target).filter(Boolean)
-  }
-
-  function focusWordCount(sentence) {
-    return Object.keys(sentence?.word_translations || {}).length
-  }
-
-  function wordEntries(sentence) {
-    const translations = sentence?.word_translations || {}
-    const tips = sentence?.word_tips || {}
-    const counts = sentence?.word_play_counts || {}
-    const audio = sentence?.pronunciations || {}
-    return Object.entries(translations).map(([word, meaning]) => ({
-      word,
-      meaning,
-      tip: tips[word] || '',
-      count: counts[word] || 0,
-      audio: audio[word] || ''
-    }))
-  }
-
-  function networkWords(sentence) {
-    return sentence?.word_network?.linked_words || sentence?.algorithm?.word_network?.linked_words || []
   }
 
   function createUiState(sentence, previous = {}) {
@@ -519,8 +336,8 @@ export function useEnglishSentenceList(context = {}) {
     saving.value = true
     error.value = ''
     try {
-      await englishApi.createSentence(payloadFromDraft(draft.value))
-      draft.value = emptyDraft()
+      await englishApi.createSentence(sentenceDraftPayload(draft.value))
+      draft.value = emptySentenceDraft()
       createOpen.value = false
       await reloadFirstPage()
       audioControls().scheduleAudioStatusRefresh?.()
@@ -611,7 +428,7 @@ export function useEnglishSentenceList(context = {}) {
   async function saveSentence(sentence) {
     if (!sentence || sentence.ui.saving) return
     const expectedDraft = JSON.stringify(sentence.ui.editDraft)
-    const payload = payloadFromDraft(sentence.ui.editDraft)
+    const payload = sentenceDraftPayload(sentence.ui.editDraft)
     sentence.ui.saving = true
     sentence.ui.message = ''
     try {
@@ -674,125 +491,31 @@ export function useEnglishSentenceList(context = {}) {
     return decorated
   }
 
-  function currentQueuedSentence(queue, fallback = null) {
-    return sentences.value.find(item => sentenceInstanceKey(item) === queue.instanceKey)
-      || queue.latestSentence
-      || fallback
+  function handleReviewRoundExpired() {
+    roundInitialized.value = false
+    return reloadFirstPage()
   }
 
-  function syncReviewQueueUi(queue) {
-    const current = currentQueuedSentence(queue, queue.events[0]?.sentence)
-    if (!current?.ui) return
-    current.ui.reviewPending = queue.events.length
-    current.ui.reviewing = queue.events.length > 0
-  }
-
-  async function submitQueuedReviewEvent(queue, event) {
-    const current = currentQueuedSentence(queue, event.sentence)
-    if (!current) return undefined
-    queue.latestSentence = current
-    try {
-      const wasRoundCompleted = Boolean(current.review_round_item_completed)
-      const wasWholeRoundCompleted = Boolean(current.review_round_completed)
-      const updated = await englishApi.reviewSentence(queue.sentenceId, {
-        event_type: event.eventType,
-        complete_round_item: event.completeRound,
-        round_item_id: event.roundItemId || undefined
-      })
-      if (updated.review_round_expired) {
-        roundInitialized.value = false
-        await reloadFirstPage()
-        return updated
-      }
-      const completedThisWrite = !wasRoundCompleted && Boolean(updated.review_round_item_completed)
-      const decorated = updateSentenceInList({
-        ...updated,
-        review_round_item_completed: wasRoundCompleted || Boolean(updated.review_round_item_completed),
-        review_round_completed: wasWholeRoundCompleted || Boolean(updated.review_round_completed)
-      }, current)
-      queue.latestSentence = decorated
-      if (completedThisWrite && reviewRound.value) {
-        reviewRound.value = {
-          ...reviewRound.value,
-          completed: Math.min(Number(reviewRound.value.completed || 0) + 1, Number(reviewRound.value.total || 0)),
-          remaining: Math.max(Number(reviewRound.value.remaining || 0) - 1, 0)
-        }
-      }
-      if (!event.silentMessage) decorated.ui.message = '已记录复习'
-      audioControls().advancePreloadWindowFromSentence?.(decorated)
-      await refreshActivity()
-      if (decorated.review_round_completed) {
-        roundInitialized.value = false
-        if (reviewRound.value) {
-          reviewRound.value = {
-            ...reviewRound.value,
-            is_completed: true,
-            next_round_at: updated.review_round_next_at || reviewRound.value.next_round_at
-          }
-          scheduleRoundBoundaryRefresh()
-        }
-      }
-      return decorated
-    } catch (err) {
-      const fresh = currentQueuedSentence(queue, current)
-      if (fresh?.ui) fresh.ui.message = err?.message || '记录失败'
-      return undefined
+  function handleReviewRoundCompleted(updated) {
+    roundInitialized.value = false
+    if (!reviewRound.value) return
+    reviewRound.value = {
+      ...reviewRound.value,
+      is_completed: true,
+      next_round_at: updated.review_round_next_at || reviewRound.value.next_round_at
     }
+    scheduleRoundBoundaryRefresh()
   }
 
-  async function drainReviewEventQueue(queue) {
-    if (queue.processing) return
-    queue.processing = true
-    const settled = []
-    try {
-      while (queue.events.length) {
-        const event = queue.events[0]
-        const result = await submitQueuedReviewEvent(queue, event)
-        queue.events.shift()
-        syncReviewQueueUi(queue)
-        settled.push({ event, result })
-      }
-    } finally {
-      queue.processing = false
-      if (reviewEventQueues.get(queue.instanceKey) === queue && !queue.events.length) {
-        reviewEventQueues.delete(queue.instanceKey)
-      }
-      settled.forEach(({ event, result }) => event.resolve(result))
-    }
-  }
-
-  function markReviewed(sentence, options = {}) {
-    const sentenceId = Number(sentence?.id)
-    if (!sentenceId) return Promise.resolve(undefined)
-    const instanceKey = sentenceInstanceKey(sentence)
-    const eventType = options.eventType === 'sentence_play' ? 'sentence_play' : 'sentence_review'
-    let queue = reviewEventQueues.get(instanceKey)
-    if (!queue) {
-      queue = {
-        instanceKey,
-        sentenceId,
-        events: [],
-        processing: false,
-        latestSentence: sentence
-      }
-      reviewEventQueues.set(instanceKey, queue)
-    }
-    if (!options.silentMessage && sentence.ui) sentence.ui.message = ''
-    const pending = new Promise(resolve => {
-      queue.events.push({
-        sentence,
-        eventType,
-        completeRound: options.completeRound !== false,
-        roundItemId: Number(sentence.review_round_item_id || 0),
-        silentMessage: Boolean(options.silentMessage),
-        resolve
-      })
-    })
-    syncReviewQueueUi(queue)
-    void drainReviewEventQueue(queue)
-    return pending
-  }
-
+  const { markReviewed } = createReviewEventQueue({
+    sentences,
+    reviewRound,
+    updateSentenceInList,
+    refreshActivity,
+    audioControls,
+    onRoundExpired: handleReviewRoundExpired,
+    onRoundCompleted: handleReviewRoundCompleted
+  })
   function resetForModeChange() {
     clearRoundBoundaryTimer()
     if (typeof window !== 'undefined') {
@@ -833,15 +556,6 @@ export function useEnglishSentenceList(context = {}) {
     heatmapCells,
     heatmapColumns,
     bulkSentences,
-    sentenceTokens,
-    plainSentenceText,
-    hasTranslationContent,
-    segmentPairs,
-    sentenceSegmentSources,
-    sentenceSegmentTargets,
-    focusWordCount,
-    wordEntries,
-    networkWords,
     heatCellClass,
     heatCellTitle,
     load,

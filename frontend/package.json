@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --test src/english/*.test.js",
+    "test": "node scripts/checkEnglishFileSizes.mjs && node --test src/english/*.test.js",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1"
   },

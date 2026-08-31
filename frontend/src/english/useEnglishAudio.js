@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { englishApi } from './api.js'
+import { sentenceInstanceKey } from './sentencePresentation.js'
 
 export function useEnglishAudio(sentencesRef, callbacks = {}) {
   const preloadWindowStart = ref(0)
@@ -33,14 +34,6 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
 
   function resolveSentenceAudioSrc(sentence) {
     return sentence?.ui?.cachedAudioUrl || sentence?.audio_url || ''
-  }
-
-  function sentenceInstanceKey(sentence) {
-    if (typeof sentence === 'number' || typeof sentence === 'string') {
-      return `sentence-${Number(sentence || 0)}`
-    }
-    const roundItemId = Number(sentence?.review_round_item_id || 0)
-    return roundItemId > 0 ? `round-${roundItemId}` : `sentence-${Number(sentence?.id || 0)}`
   }
 
   function setSentenceAudioRef(sentence, el) {
