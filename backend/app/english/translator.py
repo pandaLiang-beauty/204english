@@ -6,8 +6,8 @@ import re
 from collections import OrderedDict
 from typing import Any
 
-from ..platform.ai_transport import AIProviderError, _chat_completion, configured as ai_configured, selected_text_model
-from .translation_quality import translation_result_issues, validate_translation_result
+from ..platform.ai_transport import AIProviderError, _chat_completion
+from .translation_quality import translation_result_issues, validate_translation_result, word_translation_issues
 
 
 WORD_PATTERN = re.compile(r"[A-Za-z]+(?:['-][A-Za-z]+)*")
@@ -292,9 +292,7 @@ def _normalize_translation_payload(payload: dict[str, Any], words: list[str]) ->
 def translation_configured() -> bool:
     base_url = os.getenv(f"{ENGLISH_AI_PREFIX}_BASE_URL", "").strip()
     api_key = os.getenv(f"{ENGLISH_AI_PREFIX}_API_KEY", "").strip()
-    if base_url or api_key:
-        return bool(base_url and api_key)
-    return ai_configured()
+    return bool(base_url and api_key)
 
 
 def _english_bool_env(name: str) -> bool | None:
@@ -320,21 +318,14 @@ def _english_number_env(name: str, parser, *, user_label: str) -> Any | None:
 def _english_ai_options() -> dict[str, Any]:
     base_url = os.getenv(f"{ENGLISH_AI_PREFIX}_BASE_URL", "").strip()
     api_key = os.getenv(f"{ENGLISH_AI_PREFIX}_API_KEY", "").strip()
-    if base_url or api_key:
-        if not base_url or not api_key:
-            raise AIProviderError("英语翻译 AI 服务未完整配置")
-        default_model = os.getenv(f"{ENGLISH_AI_PREFIX}_MODEL", "deepseek-v4-flash").strip() or "deepseek-v4-flash"
-        options: dict[str, Any] = {
-            "base_url": base_url,
-            "api_key": api_key,
-            "model": selected_text_model(default=default_model),
-        }
-    else:
-        options = {}
-        model = os.getenv(f"{ENGLISH_AI_PREFIX}_MODEL", "").strip()
-        selected_model = selected_text_model(default=model or None)
-        if selected_model:
-            options["model"] = selected_model
+    if not base_url or not api_key:
+        raise AIProviderError("英语翻译 AI 服务未完整配置")
+    model = os.getenv(f"{ENGLISH_AI_PREFIX}_MODEL", "deepseek-v4-flash").strip() or "deepseek-v4-flash"
+    options: dict[str, Any] = {
+        "base_url": base_url,
+        "api_key": api_key,
+        "model": model,
+    }
 
     temperature = _english_number_env(
         f"{ENGLISH_AI_PREFIX}_TEMPERATURE",
@@ -528,6 +519,32 @@ def _translate_words_only(sentence: str, words: list[str], *, feedback: str = ""
         expected_schema='{"words":[{"word":"原词","base_translation":"本义","context_translation":"句中义","translation":"展示释义","tip":""}]}',
     )
     return _normalize_translation_payload(payload, words)
+
+
+def translate_words(text: str, *, words: list[str] | None = None) -> dict:
+    """Generate only missing focus-word meanings without revisiting a valid sentence translation."""
+    source_sentence = _translation_source(text)
+    if not source_sentence:
+        raise AIProviderError("句子不能为空")
+    selected_words = _normalize_words(words, str(text or ""))
+    if not selected_words:
+        return {"items": [], "word_translations": {}, "word_tips": {}}
+
+    result = _translate_words_only(source_sentence, selected_words)
+    issues = word_translation_issues(result, selected_words)
+    if issues:
+        result = _translate_words_only(source_sentence, selected_words, feedback="; ".join(issues[:6]))
+        issues = word_translation_issues(result, selected_words)
+    if issues:
+        raise AIProviderError(
+            "AI 词义结果未通过本地校验，请重试。",
+            f"word translation validation failed: {issues[0]}",
+        )
+    return {
+        "items": result.get("items") or [],
+        "word_translations": result.get("word_translations") or {},
+        "word_tips": result.get("word_tips") or {},
+    }
 
 
 def _review_translation_result(sentence: str, result: dict[str, Any], words: list[str]) -> list[str]:

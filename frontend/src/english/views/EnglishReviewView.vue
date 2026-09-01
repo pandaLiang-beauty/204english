@@ -128,19 +128,26 @@
             <div class="grid gap-3 border-t border-border bg-surface/60 px-4 py-4 md:px-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
               <section class="rounded-md border border-border bg-bg p-3">
                 <h3 class="text-xs font-semibold text-muted">整句翻译</h3>
-                <div class="sentence-translation-source mt-2 whitespace-pre-wrap text-sm leading-6 text-text">
-                  {{ plainSentenceText(sentence.text) }}
+                <div v-if="segmentPairs(sentence).length">
+                  <div class="mt-2 text-sm leading-6 text-text">
+                    <template v-for="(pair, pairIndex) in segmentPairs(sentence)" :key="`${sentence.id}-${pairIndex}`">
+                      <span v-if="pairIndex" class="px-1.5 text-muted">//</span>
+                      <span>{{ pair.source }}</span>
+                    </template>
+                  </div>
+                  <div
+                    :class="[
+                      'mt-1 text-sm leading-6 text-text',
+                      sentence.ui.showTranslation ? '' : 'invisible'
+                    ]"
+                  >
+                    <template v-for="(pair, pairIndex) in segmentPairs(sentence)" :key="`${sentence.id}-translation-${pairIndex}`">
+                      <span v-if="pairIndex" class="px-1.5 text-muted">//</span>
+                      <span>{{ pair.target }}</span>
+                    </template>
+                  </div>
                 </div>
-                <div
-                  v-if="sentence.sentence_translation"
-                  :class="[
-                    'sentence-translation-target mt-2 whitespace-pre-wrap border-l-2 border-primary/35 pl-3 text-sm leading-6 text-text',
-                    sentence.ui.showTranslation ? '' : 'invisible'
-                  ]"
-                >
-                  {{ sentence.sentence_translation }}
-                </div>
-                <div v-else class="mt-2 text-sm text-muted">暂无翻译</div>
+                <div v-else class="mt-2 text-sm text-muted">暂无分块翻译</div>
               </section>
 
               <section class="rounded-md border border-dashed border-border bg-bg p-3">
@@ -232,7 +239,7 @@ import {
 import SentenceEditor from '../SentenceEditor.vue'
 import {
   hasTranslationContent,
-  plainSentenceText,
+  segmentPairs,
   sentenceInstanceKey,
   sentenceTokens,
   wordEntries
@@ -269,25 +276,13 @@ defineProps({
 </script>
 
 <style scoped>
-.sentence-reader,
-.sentence-segment-en,
-.sentence-translation-source {
+.sentence-reader {
   --english-reading-font: Georgia, "Arial Hebrew", "Noto Sans Hebrew", "Times New Roman",
     Times, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "PingFang TC",
     "Microsoft JhengHei", "Noto Sans CJK TC", "Hiragino Sans", "Yu Gothic", Meiryo,
     "Noto Sans CJK JP", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", serif;
-}
-
-.sentence-reader,
-.sentence-segment-en,
-.sentence-translation-source {
   font-family: var(--english-reading-font);
   letter-spacing: 0;
-}
-
-.sentence-translation-target {
-  font-family: var(--font-sans), "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-  letter-spacing: 0.01em;
 }
 
 .sentence-reader button {

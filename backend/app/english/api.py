@@ -21,7 +21,7 @@ from .audio_generation import (
     voice_preview_file,
 )
 from .translation_generation import translate_sentences_if_missing_best_effort
-from .translator import translate_text, translation_configured
+from .translator import translate_text, translate_words, translation_configured
 
 
 router = APIRouter(prefix="/api/english", tags=["english"])
@@ -63,6 +63,11 @@ class EnglishFocusWordPayload(BaseModel):
 class EnglishTranslatePayload(BaseModel):
     text: str = Field(min_length=1, max_length=12000)
     words: list[str] | None = None
+
+
+class EnglishWordTranslatePayload(BaseModel):
+    text: str = Field(min_length=1, max_length=12000)
+    words: list[str] = Field(min_length=1, max_length=40)
 
 
 class EnglishAudioSelectionPayload(BaseModel):
@@ -240,6 +245,25 @@ def translate_english_text(
         return translate_text(payload.text, words=payload.words)
     except AIProviderError as exc:
         logger.warning("english translation request failed: %s", exc.diagnostic)
+        raise HTTPException(status_code=http_status_for_ai_error(exc), detail=exc.user_message) from exc
+
+
+@router.post("/translate/words")
+@limiter.limit("10/minute")
+@resolve_annotations
+def translate_english_words(
+    request: Request,
+    payload: EnglishWordTranslatePayload,
+    user: dict = Depends(get_current_user),
+    csrf: None = Depends(verify_write_origin),
+) -> dict:
+    _ = request, user, csrf
+    if not translation_configured():
+        raise HTTPException(status_code=400, detail="English translation AI provider is not configured")
+    try:
+        return translate_words(payload.text, words=payload.words)
+    except AIProviderError as exc:
+        logger.warning("english word translation request failed: %s", exc.diagnostic)
         raise HTTPException(status_code=http_status_for_ai_error(exc), detail=exc.user_message) from exc
 
 

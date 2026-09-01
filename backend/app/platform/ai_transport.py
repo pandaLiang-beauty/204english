@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -24,51 +23,26 @@ def http_status_for_ai_error(exc: AIProviderError) -> int:
     return 424
 
 
-def _api_key_from_env() -> str:
-    reference = os.getenv("STUDY_AI_API_KEY_FROM", "").strip()
-    if reference:
-        return os.getenv(reference, "").strip()
-    return os.getenv("STUDY_AI_API_KEY", "").strip()
-
-
-def configured() -> bool:
-    return bool(os.getenv("STUDY_AI_BASE_URL", "").strip() and _api_key_from_env())
-
-
-def selected_text_model(*, default: str | None = None) -> str:
-    return (default or os.getenv("STUDY_AI_MODEL", "deepseek-v4-flash")).strip() or "deepseek-v4-flash"
-
-
-def _bool_env(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _chat_completion(
     messages: list[dict[str, Any]],
     *,
-    model: str | None = None,
-    base_url: str | None = None,
-    api_key: str | None = None,
+    model: str,
+    base_url: str,
+    api_key: str,
     temperature: float | None = None,
     reasoning_effort: str | None = None,
     disable_thinking: bool | None = None,
     timeout_seconds: float | None = None,
 ) -> str:
-    base_url = (base_url or os.getenv("STUDY_AI_BASE_URL", "")).strip().rstrip("/")
-    api_key = (api_key or _api_key_from_env()).strip()
-    selected_model = (model or selected_text_model()).strip()
+    base_url = str(base_url or "").strip().rstrip("/")
+    api_key = str(api_key or "").strip()
+    selected_model = str(model or "").strip()
     if not base_url or not api_key:
         raise AIProviderError("AI 服务未配置")
 
     selected_temperature = temperature
     if selected_temperature is None:
-        try:
-            selected_temperature = float(os.getenv("STUDY_AI_TEMPERATURE", "0.2"))
-        except (TypeError, ValueError) as exc:
-            raise AIProviderError(
-                "AI 服务配置无效，请检查温度参数。",
-                f"AI temperature configuration is invalid: {exc}",
-            ) from exc
+        selected_temperature = 0.2
     payload: dict[str, Any] = {
         "model": selected_model,
         "messages": messages,
@@ -76,13 +50,9 @@ def _chat_completion(
         "temperature": selected_temperature,
     }
     selected_reasoning_effort = reasoning_effort
-    if selected_reasoning_effort is None:
-        selected_reasoning_effort = os.getenv("STUDY_AI_REASONING_EFFORT", "").strip()
     if selected_reasoning_effort:
         payload["reasoning_effort"] = selected_reasoning_effort
     selected_disable_thinking = disable_thinking
-    if selected_disable_thinking is None:
-        selected_disable_thinking = _bool_env(os.getenv("STUDY_AI_DISABLE_THINKING", ""))
     if selected_disable_thinking:
         payload["thinking"] = {"type": "disabled"}
 
@@ -99,7 +69,7 @@ def _chat_completion(
     try:
         selected_timeout = timeout_seconds
         if selected_timeout is None:
-            selected_timeout = float(os.getenv("STUDY_AI_TIMEOUT_SECONDS", "120"))
+            selected_timeout = 120
         with urlopen(request, timeout=selected_timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:

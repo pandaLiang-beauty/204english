@@ -44,6 +44,29 @@ export function sentenceDraftPayload(value) {
   }
 }
 
+// 与后端的 sentence_translation_source_key 保持一致：加粗只是重点词标记，
+// 方括号里的中文只是编辑注记，都不改变整句翻译的来源。
+export function translationSourceKey(text) {
+  return String(text || '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\[[^\]]*[\u4e00-\u9fff][^\]]*\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// 已有整句译文不变、只新增重点词时，只需要补这些空释义。
+export function missingMarkedWords(value) {
+  const translations = parseMap(value?.translationsText)
+  const byNormalized = new Map(
+    Object.entries(translations)
+      .map(([key, translation]) => [String(key || '').trim().toLowerCase(), String(translation || '').trim()])
+      .filter(([key]) => key)
+  )
+  return markedWordsFromText(value?.text)
+    .map(item => String(item.word || '').trim())
+    .filter(word => word && !byNormalized.get(word.toLowerCase()))
+}
+
 export function applyTranslationToDraft(target, result) {
   if (!target || !result) return target
   const wordTranslations = result.word_translations || {}
@@ -59,6 +82,17 @@ export function applyTranslationToDraft(target, result) {
     translationSegmentsText: translationSegments.length ? stringifySegments(translationSegments) : target.translationSegmentsText,
     translationsText: hasWordTranslations ? stringifyMap(wordTranslations) : target.translationsText,
     tipsText: hasWordTips ? stringifyMap(wordTips) : target.tipsText
+  }
+}
+
+export function applyWordTranslationsToDraft(target, result) {
+  if (!target || !result) return target
+  const translations = mergeMaps(parseMap(target.translationsText), result.word_translations)
+  const tips = mergeMaps(parseMap(target.tipsText), result.word_tips)
+  return {
+    ...target,
+    translationsText: stringifyMap(translations),
+    tipsText: stringifyMap(tips)
   }
 }
 
@@ -92,6 +126,21 @@ function parseSegments(text) {
     .split(/\s*\/\s*/)
     .map(item => item.trim().replace(/\s+/g, ' '))
     .filter(Boolean)
+}
+
+function mergeMaps(existing, additions) {
+  const output = { ...(existing || {}) }
+  const existingKeys = new Map(
+    Object.keys(output).map(key => [String(key || '').trim().toLowerCase(), key])
+  )
+  for (const [rawKey, rawValue] of Object.entries(additions || {})) {
+    const key = String(rawKey || '').trim()
+    if (!key) continue
+    const existingKey = existingKeys.get(key.toLowerCase()) || key
+    output[existingKey] = String(rawValue || '').trim()
+    existingKeys.set(key.toLowerCase(), existingKey)
+  }
+  return output
 }
 
 function mergeMarkedWordsIntoTranslations(text, translations) {

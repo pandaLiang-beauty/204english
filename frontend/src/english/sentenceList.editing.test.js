@@ -101,6 +101,63 @@ test('an older AI translation cannot overwrite a draft edited while the request 
   }
 })
 
+test('adding a focus marker requests meanings only for newly unfilled words', async () => {
+  const originals = {
+    stats: englishApi.stats,
+    sentences: englishApi.sentences,
+    translateText: englishApi.translateText,
+    translateWords: englishApi.translateWords
+  }
+  const initial = {
+    ...sentenceRecord(),
+    text: 'A **known** and new word.',
+    sentence_translation: '一个已知词和一个新词。',
+    sentence_segments: ['A known and new word.'],
+    translation_segments: ['一个已知词和一个新词。'],
+    word_translations: { known: '本义：知道；句中：已知的' },
+    word_tips: { known: 'know 的过去分词' }
+  }
+  const wordRequests = []
+  let fullTranslationCalls = 0
+  englishApi.stats = async () => ({ active: 1 })
+  englishApi.sentences = async () => ({ items: [initial], total: 1, page: 1 })
+  englishApi.translateText = async () => {
+    fullTranslationCalls += 1
+    throw new Error('the full translation path must not run')
+  }
+  englishApi.translateWords = async payload => {
+    wordRequests.push(payload)
+    return {
+      items: [],
+      word_translations: { new: '本义：新的；句中：新出现的' },
+      word_tips: { new: '常与名词连用' }
+    }
+  }
+
+  try {
+    const list = useEnglishSentenceList()
+    await list.load()
+    const sentence = list.sentences.value[0]
+    list.toggleEditor(sentence)
+    sentence.ui.editDraft.text = 'A **known** and **new** word.'
+
+    await list.translateSentenceDraft(sentence)
+
+    assert.deepEqual(wordRequests, [{ text: 'A **known** and **new** word.', words: ['new'] }])
+    assert.equal(fullTranslationCalls, 0)
+    assert.equal(sentence.ui.editDraft.sentenceTranslation, initial.sentence_translation)
+    assert.equal(sentence.ui.editDraft.sentenceSegmentsText, 'A known and new word.')
+    assert.equal(sentence.ui.editDraft.translationSegmentsText, '一个已知词和一个新词。')
+    assert.match(sentence.ui.editDraft.translationsText, /^known=本义：知道；句中：已知的$/m)
+    assert.match(sentence.ui.editDraft.translationsText, /^new=本义：新的；句中：新出现的$/m)
+    assert.match(sentence.ui.editDraft.tipsText, /^known=know 的过去分词$/m)
+    assert.match(sentence.ui.editDraft.tipsText, /^new=常与名词连用$/m)
+    assert.match(sentence.ui.message, /已补充 1 个新增重点词释义/)
+  } finally {
+    Object.assign(englishApi, originals)
+  }
+})
+
 test('a sentence save response preserves edits made after the request started', async () => {
   const originals = {
     stats: englishApi.stats,

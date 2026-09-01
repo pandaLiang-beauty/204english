@@ -1,5 +1,5 @@
 <template>
-      <section  class="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <section class="passages-workspace grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <aside class="grid content-start gap-4 xl:sticky xl:top-4">
           <section class="rounded-lg border border-border bg-surface p-4">
             <div class="flex items-center justify-between gap-3">
@@ -508,6 +508,15 @@ defineExpose({
 </script>
 
 <style scoped>
+/* 408 的卷面只把正文保留为亮纸色；辅助区使用更收敛的暖灰。
+   阅读页此前所有卡片都继承近白的 surface，长时间看真题会显得刺眼。
+   在这个工作区覆盖 token，既不影响句子复习等页面，也保留深色主题。 */
+:global(:root[data-theme="light"]) .passages-workspace {
+  --surface: #f6f4ef;
+  --surface-2: #ece8df;
+  --border: #d7d0c3;
+}
+
 .passage-annotator {
   --english-reading-font: Georgia, "Arial Hebrew", "Noto Sans Hebrew", "Times New Roman",
     Times, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "PingFang TC",

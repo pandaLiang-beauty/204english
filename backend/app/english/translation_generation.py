@@ -7,8 +7,8 @@ from typing import Any
 
 from ..platform.ai_transport import AIProviderError
 from ..platform.db import begin_immediate, get_connection
-from .translation_quality import validate_translation_result
-from .translator import extract_words, translate_text, translation_configured
+from .translation_quality import validate_translation_result, word_translation_issues
+from .translator import extract_words, translate_text, translate_words, translation_configured
 
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,13 @@ def _needs_translation(row: dict) -> bool:
         return True
     translations = _json_loads(row.get("word_translations_json"), {})
     return isinstance(translations, dict) and any(not str(value or "").strip() for value in translations.values())
+
+
+def _missing_words(row: dict) -> list[str]:
+    translations = _json_loads(row.get("word_translations_json"), {})
+    if not isinstance(translations, dict):
+        return []
+    return [str(word) for word, value in translations.items() if str(word).strip() and not str(value or "").strip()]
 
 
 def _merge_missing(
@@ -161,12 +168,21 @@ def translate_sentence_if_missing_best_effort(sentence_id: int, expected_text: s
     try:
         text = str(row.get("text") or "")
         words = _selected_words(row)
-        result = translate_text(text, words=words)
-        ok, reason = validate_translation_result(result, words or [], source_text=text)
-        if ok:
-            _apply_translation_if_still_missing(sentence_id, result, expected_text=text)
-            return
-        logger.warning("english auto translation rejected invalid result for sentence %s: %s", sentence_id, reason)
+        missing_words = _missing_words(row)
+        if not str(row.get("sentence_translation") or "").strip():
+            result = translate_text(text, words=words)
+            ok, reason = validate_translation_result(result, words or [], source_text=text)
+            if ok:
+                _apply_translation_if_still_missing(sentence_id, result, expected_text=text)
+                return
+            logger.warning("english auto translation rejected invalid result for sentence %s: %s", sentence_id, reason)
+        elif missing_words:
+            result = translate_words(text, words=missing_words)
+            issues = word_translation_issues(result, missing_words)
+            if not issues:
+                _apply_translation_if_still_missing(sentence_id, result, expected_text=text)
+                return
+            logger.warning("english auto word translation rejected invalid result for sentence %s: %s", sentence_id, issues[0])
     except AIProviderError as exc:
         logger.warning("english auto translation failed for sentence %s: %s", sentence_id, exc.user_message)
     except Exception:

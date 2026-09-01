@@ -122,7 +122,6 @@ def check_malformed_ai_response_is_controlled() -> None:
 
 def check_ai_transport_does_not_limit_output_tokens() -> None:
     original_urlopen = ai_transport.urlopen
-    original_max_tokens = os.environ.get("STUDY_AI_MAX_TOKENS")
     captured_payload: dict = {}
 
     class FakeResponse:
@@ -140,7 +139,6 @@ def check_ai_transport_does_not_limit_output_tokens() -> None:
         return FakeResponse()
 
     try:
-        os.environ["STUDY_AI_MAX_TOKENS"] = "1200"
         ai_transport.urlopen = fake_urlopen
         result = ai_transport._chat_completion(
             [{"role": "user", "content": "test"}],
@@ -153,10 +151,6 @@ def check_ai_transport_does_not_limit_output_tokens() -> None:
         assert "max_tokens" not in captured_payload, captured_payload
     finally:
         ai_transport.urlopen = original_urlopen
-        if original_max_tokens is None:
-            os.environ.pop("STUDY_AI_MAX_TOKENS", None)
-        else:
-            os.environ["STUDY_AI_MAX_TOKENS"] = original_max_tokens
 
 
 def check_login_rate_limit() -> None:

@@ -237,7 +237,12 @@ def sentence_identity_key(value: str) -> str:
 
 
 def sentence_translation_source_key(value: str) -> str:
-    return re.sub(r"\s+", " ", plain_sentence_audio_text(value)).strip()
+    # Focus markers and Chinese bracketed editing notes are not English source
+    # content.  Keep this in step with translator._translation_source so adding
+    # a focus marker never invalidates a still-valid sentence translation.
+    source = plain_sentence_audio_text(value)
+    source = re.sub(r"\[[^\]]*[\u4e00-\u9fff][^\]]*\]", "", source)
+    return re.sub(r"\s+", " ", source).strip()
 
 
 def sentence_audio_hash(text: str, *, provider: str | None = None, voice: str | None = None) -> str:

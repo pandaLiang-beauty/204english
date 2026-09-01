@@ -4,10 +4,13 @@ import { createReviewEventQueue } from './createReviewEventQueue.js'
 import { markedWordsFromText } from './passageMarkdown.js'
 import {
   applyTranslationToDraft,
+  applyWordTranslationsToDraft,
   emptySentenceDraft,
+  missingMarkedWords,
   sentenceDraftPayload,
   sentenceToDraft,
-  splitBulkSentences
+  splitBulkSentences,
+  translationSourceKey
 } from './sentenceDraft.js'
 import { sentenceInstanceKey } from './sentencePresentation.js'
 
@@ -241,10 +244,7 @@ export function useEnglishSentenceList(context = {}) {
               resume: shouldResumeRound
             }
       )
-      // stats 与句子列表之间没有数据依赖，别串行 await：后端本身只要 77ms / 353ms，
-      // 但每个请求过 Cloudflare Tunnel 要多付约一个往返，串起来首屏就白等一截。
-      // 并发发出、一起等；下面 total.value = data.total 在 Promise.all 之后执行，
-      // 仍然覆盖 fetchActivity 里那次 stats.active 赋值，取值顺序不变。
+      // 统计与列表独立，首屏并发请求；列表 total 仍在随后覆盖统计值。
       const [, firstPage] = await Promise.all([
         fetchActivity(),
         englishApi.sentences(sentenceParams)
@@ -404,20 +404,37 @@ export function useEnglishSentenceList(context = {}) {
 
   async function translateSentenceDraft(sentence) {
     if (!sentence || sentence.ui.translating) return
-    const text = String(sentence.ui.editDraft?.text || '').trim()
+    const editDraft = sentence.ui.editDraft
+    const text = String(editDraft?.text || '').trim()
     if (!text) return
-    const expectedDraft = JSON.stringify(sentence.ui.editDraft)
+    const expectedDraft = JSON.stringify(editDraft)
     sentence.ui.translating = true
     sentence.ui.message = ''
     try {
       const words = markedWordsFromText(text).map(item => item.word)
-      const result = await englishApi.translateText({ text, words })
+      const sourceUnchanged = (
+        translationSourceKey(text) === translationSourceKey(sentence.text)
+        && Boolean(String(editDraft?.sentenceTranslation || '').trim())
+      )
+      const missingWords = missingMarkedWords(editDraft)
+      if (sourceUnchanged && !missingWords.length) {
+        sentence.ui.message = '整句译文和重点词释义均已存在'
+        return
+      }
+      const wordsOnly = sourceUnchanged && missingWords.length > 0
+      const result = wordsOnly
+        ? await englishApi.translateWords({ text, words: missingWords })
+        : await englishApi.translateText({ text, words })
       if (JSON.stringify(sentence.ui.editDraft) !== expectedDraft) {
         sentence.ui.message = '内容已修改，已忽略旧翻译结果'
         return
       }
-      sentence.ui.editDraft = applyTranslationToDraft(sentence.ui.editDraft, result)
-      sentence.ui.message = '已生成翻译，保存后生效'
+      sentence.ui.editDraft = wordsOnly
+        ? applyWordTranslationsToDraft(sentence.ui.editDraft, result)
+        : applyTranslationToDraft(sentence.ui.editDraft, result)
+      sentence.ui.message = wordsOnly
+        ? `已补充 ${missingWords.length} 个新增重点词释义，保存后生效`
+        : '已生成翻译，保存后生效'
     } catch (err) {
       sentence.ui.message = err?.message || '生成翻译失败'
     } finally {

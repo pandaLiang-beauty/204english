@@ -54,6 +54,10 @@ export const englishApi = {
     method: 'POST',
     body: JSON.stringify(payload)
   }),
+  translateWords: payload => request('/api/english/translate/words', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
   passages: (params = {}) => {
     const search = new URLSearchParams()
     if (params?.page) search.set('page', params.page)

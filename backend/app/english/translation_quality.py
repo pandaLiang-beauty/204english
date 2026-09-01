@@ -330,6 +330,12 @@ def translation_result_issues(result: dict[str, Any], words: list[str], *, sourc
     ):
         issues.append("bad_translation_segment_if_order")
 
+    issues.extend(word_translation_issues(result, words))
+    return issues
+
+
+def word_translation_issues(result: dict[str, Any], words: list[str]) -> list[str]:
+    issues: list[str] = []
     translations = result.get("word_translations") if isinstance(result.get("word_translations"), dict) else {}
     for word in words:
         text = str(translations.get(word) or "").strip()

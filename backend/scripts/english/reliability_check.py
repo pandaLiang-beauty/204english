@@ -172,6 +172,31 @@ def check_dedicated_ai_configuration() -> None:
                 os.environ[name] = value
 
 
+def check_translation_requires_dedicated_ai_configuration() -> None:
+    names = (
+        "STUDY_ENGLISH_AI_BASE_URL",
+        "STUDY_ENGLISH_AI_API_KEY",
+        "STUDY_ENGLISH_AI_MODEL",
+    )
+    original = {name: os.environ.get(name) for name in names}
+    try:
+        for name in names:
+            os.environ.pop(name, None)
+        assert translator.translation_configured() is False
+        try:
+            translator._english_ai_options()
+        except translator.AIProviderError as exc:
+            assert "英语翻译 AI 服务未完整配置" in exc.user_message, exc.user_message
+        else:
+            raise AssertionError("translation must not fall back to a generic AI gateway")
+    finally:
+        for name, value in original.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def check_library_metadata() -> None:
     assert repository._stored_sentence_audio_identity(
         {
@@ -234,16 +259,24 @@ def check_split_translation_pipeline() -> None:
     ]
     calls: list[list[dict]] = []
     original_chat = translator._chat_completion
+    original_options = translator._english_ai_options
+    fake_options = {
+        "base_url": "https://ai.example/v1",
+        "api_key": "test-key",
+        "model": "test-model",
+    }
 
     def fake_chat(messages, **_kwargs):
         calls.append(messages)
         return json.dumps(responses[len(calls) - 1], ensure_ascii=False)
 
     translator._chat_completion = fake_chat
+    translator._english_ai_options = lambda: dict(fake_options)
     try:
         result = translator.translate_text(sentence, words=["plastics", "durable"])
     finally:
         translator._chat_completion = original_chat
+        translator._english_ai_options = original_options
     assert len(calls) == 4, len(calls)
     assert result["sentence_translation"] == "人们常常抱怨塑料过于耐用。", result
     assert result["word_translations"]["durable"].endswith("句中：难以降解的"), result
@@ -281,10 +314,12 @@ def check_split_translation_pipeline() -> None:
         return json.dumps(response, ensure_ascii=False)
 
     translator._chat_completion = fallback_chat
+    translator._english_ai_options = lambda: dict(fake_options)
     try:
         fallback_result = translator.translate_text(sentence, words=["plastics", "durable"])
     finally:
         translator._chat_completion = original_chat
+        translator._english_ai_options = original_options
     assert fallback_calls == 5, fallback_calls
     assert fallback_result["sentence_segments"] == ["People often complain that plastics are too durable."], fallback_result
     assert fallback_result["translation_segments"] == ["人们常常抱怨塑料过于耐用。"], fallback_result
@@ -297,6 +332,7 @@ def check_split_translation_pipeline() -> None:
         raise translator.AIProviderError("AI 服务网络请求失败", "AI provider HTTP 500")
 
     translator._chat_completion = failing_chat
+    translator._english_ai_options = lambda: dict(fake_options)
     try:
         try:
             translator.translate_text(sentence, words=["plastics", "durable"])
@@ -306,7 +342,40 @@ def check_split_translation_pipeline() -> None:
             raise AssertionError("provider failure was unexpectedly accepted")
     finally:
         translator._chat_completion = original_chat
+        translator._english_ai_options = original_options
     assert failed_calls == 1, failed_calls
+
+    word_only_calls = 0
+
+    def word_only_chat(_messages, **_kwargs):
+        nonlocal word_only_calls
+        word_only_calls += 1
+        return json.dumps(
+            {
+                "words": [
+                    {
+                        "word": "durable",
+                        "base_translation": "耐用的",
+                        "context_translation": "难以降解的",
+                        "tip": "durable = dur + able",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+    translator._chat_completion = word_only_chat
+    translator._english_ai_options = lambda: dict(fake_options)
+    try:
+        word_only_result = translator.translate_words(sentence, words=["durable"])
+    finally:
+        translator._chat_completion = original_chat
+        translator._english_ai_options = original_options
+    assert word_only_calls == 1, word_only_calls
+    assert word_only_result["word_translations"] == {
+        "durable": "本义：耐用的；句中：难以降解的"
+    }, word_only_result
+    assert "sentence_translation" not in word_only_result, word_only_result
 
 
 def check_edit_translation_invalidation() -> None:
@@ -356,6 +425,81 @@ def check_edit_translation_invalidation() -> None:
                 "new": "本义：新的；句中：新的"
             }, refreshed
     finally:
+        platform_db.DB_PATH = original_path
+
+
+def check_incremental_focus_word_translation() -> None:
+    original_path = platform_db.DB_PATH
+    original_configured = translation_generation.translation_configured
+    original_translate_text = translation_generation.translate_text
+    original_translate_words = translation_generation.translate_words
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            platform_db.DB_PATH = Path(temp_dir) / "study.db"
+            initialize_database()
+            initialize_english_schema()
+            created = repository.create_sentence(
+                text="A **known** and new word.",
+                word_translations={"known": "本义：知道；句中：已知的"},
+                word_tips={"known": "know 的过去分词"},
+                sentence_translation="一个已知词和一个新词。",
+                sentence_segments=["A known and new word."],
+                translation_segments=["一个已知词和一个新词。"],
+            )
+            updated = repository.update_sentence(
+                sentence_id=int(created["id"]),
+                text="A **known** and **new** word. [新增重点词]",
+                word_translations={"known": "本义：知道；句中：已知的", "new": ""},
+                word_tips={"known": "know 的过去分词"},
+                sentence_translation=created["sentence_translation"],
+                sentence_segments=created["sentence_segments"],
+                translation_segments=created["translation_segments"],
+            )
+            assert updated and updated["translation_pending"] is True, updated
+            assert updated["sentence_translation"] == "一个已知词和一个新词。", updated
+            assert updated["sentence_segments"] == ["A known and new word."], updated
+            assert repository.sentence_translation_source_key(updated["text"]) == (
+                repository.sentence_translation_source_key(created["text"])
+            )
+
+            word_requests: list[tuple[str, list[str] | None]] = []
+
+            def unexpected_full_translation(*_args, **_kwargs):
+                raise AssertionError("incremental focus words must not retranslate the sentence")
+
+            def fake_word_translation(text, *, words=None):
+                word_requests.append((text, words))
+                return {
+                    "items": [],
+                    "word_translations": {"new": "本义：新的；句中：新出现的"},
+                    "word_tips": {"new": "常与名词连用"},
+                }
+
+            translation_generation.translation_configured = lambda: True
+            translation_generation.translate_text = unexpected_full_translation
+            translation_generation.translate_words = fake_word_translation
+            translation_generation.translate_sentence_if_missing_best_effort(
+                int(created["id"]),
+                expected_text="A **known** and **new** word. [新增重点词]",
+            )
+
+            assert word_requests == [("A **known** and **new** word. [新增重点词]", ["new"])], word_requests
+            refreshed = repository.get_sentence(int(created["id"]))
+            assert refreshed and refreshed["sentence_translation"] == "一个已知词和一个新词。", refreshed
+            assert refreshed["sentence_segments"] == ["A known and new word."], refreshed
+            assert refreshed["translation_segments"] == ["一个已知词和一个新词。"], refreshed
+            assert refreshed["word_translations"] == {
+                "known": "本义：知道；句中：已知的",
+                "new": "本义：新的；句中：新出现的",
+            }, refreshed
+            assert refreshed["word_tips"] == {
+                "known": "know 的过去分词",
+                "new": "常与名词连用",
+            }, refreshed
+    finally:
+        translation_generation.translation_configured = original_configured
+        translation_generation.translate_text = original_translate_text
+        translation_generation.translate_words = original_translate_words
         platform_db.DB_PATH = original_path
 
 
@@ -1121,9 +1265,11 @@ CHECKS = (
     check_audio_assets,
     check_kokoro_voice_catalog,
     check_dedicated_ai_configuration,
+    check_translation_requires_dedicated_ai_configuration,
     check_library_metadata,
     check_split_translation_pipeline,
     check_edit_translation_invalidation,
+    check_incremental_focus_word_translation,
     check_startup_translation_recovery_scans_only_pending_sentences,
     check_audio_voice_settings,
     check_legacy_audio_metadata_reconciliation,
