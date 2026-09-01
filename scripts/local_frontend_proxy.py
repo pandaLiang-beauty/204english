@@ -136,6 +136,13 @@ class FrontendProxyHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(path.stat().st_size if head_only else len(data)))
         if raw_path.startswith("/assets/"):
             self.send_header("Cache-Control", "public, max-age=2592000, immutable")
+        else:
+            # The app shell must never outlive a build.  `npm run build` renames every
+            # file under /assets/ with a fresh content hash, and index.html is the only
+            # place those new names appear -- if the browser serves a cached index.html
+            # it will keep requesting the previous build's asset names, which no longer
+            # exist, and the page renders raw and half-loaded.
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
         if data:
             self.wfile.write(data)

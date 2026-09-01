@@ -19,6 +19,9 @@ export function usePassageEditor(callbacks = {}) {
   const passageCompleting = ref(false)
   const passageMessage = ref('')
   const passageError = ref('')
+  // 同步结果的就地回显。passageMessage 渲染在 main 列顶端，离底部那个同步按钮太远，
+  // 点完看不见；这个专供「标注句子」卡片自己显示。
+  const passageSyncMessage = ref('')
   const selectedCandidateIndexes = ref([])
   const passageTypeFilter = ref('')
   const passageExamFilter = ref('')
@@ -472,15 +475,23 @@ export function usePassageEditor(callbacks = {}) {
     passageSyncing.value = true
     passageMessage.value = ''
     passageError.value = ''
+    passageSyncMessage.value = ''
     try {
       const result = await englishApi.syncPassageSentences(activePassage.value.id, {
         candidate_indexes: selectedCandidateIndexes.value
       })
       if (result?.passage) replacePassage(result.passage)
       passageMessage.value = `已同步 ${result?.inserted || 0} 句，复用 ${result?.reused || 0} 句`
+      // 同步成功就把勾选清掉。这一步是「标注句子」那张卡片里唯一看得见的反馈——
+      // passageMessage 和标题栏的「已同步 N 句」都渲染在 main 列顶端，而卡片在页面
+      // 底部，点完按钮它们全在视口外，勾还挂着、按钮还写着「同步 1 句」，看起来就像
+      // 什么都没发生（实际上句子已经入库了）。
+      passageSyncMessage.value = passageMessage.value
+      selectedCandidateIndexes.value = []
       await callbacks.refreshActivity?.()
     } catch (err) {
       passageError.value = err?.message || '同步候选句失败'
+      passageSyncMessage.value = passageError.value
     } finally {
       passageSyncing.value = false
     }
@@ -539,6 +550,7 @@ export function usePassageEditor(callbacks = {}) {
     passageCompleting,
     passageMessage,
     passageError,
+    passageSyncMessage,
     selectedCandidateIndexes,
     passageTypeFilter,
     passageExamFilter,

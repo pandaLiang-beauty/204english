@@ -4,6 +4,8 @@ import asyncio
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -14,6 +16,10 @@ from typing import Any
 
 from ..platform.db import get_connection, rows_to_dicts
 from . import repository
+
+
+# 子进程要以 backend/ 为 cwd 才能 `-m app.english.kokoro_worker`。
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 DEFAULT_EDGE_VOICE = repository.DEFAULT_WORD_AUDIO_VOICE
@@ -278,6 +284,128 @@ def _kokoro_voice_source(voice: str) -> str:
     return voice
 
 
+class _KokoroWorkerDied(RuntimeError):
+    """子进程没了（多半是内存不足被内核杀的）。换个新的重试有意义。"""
+
+
+class _KokoroWorker:
+    """把 Kokoro 合成隔离到子进程，批次结束就把 torch 的内存还给系统。
+
+    父进程（uvicorn）绝不能 import torch：实测 import 一次后端常驻 RSS 就从 78MB
+    钉在 700MB 不再回落，其中 671MB 是不可回收的匿名内存。子进程退出则整块地址
+    空间由内核收回，常驻增量归零。
+
+    一个批次共用一个子进程，模型只加载一次（约 25 秒），之后每句约 8 秒；
+    每句一行 JSON 往返。
+    """
+
+    def __init__(self) -> None:
+        self._proc: Any = None
+
+    def _ensure(self) -> Any:
+        if self._proc is not None and self._proc.poll() is None:
+            return self._proc
+        # -u 关掉缓冲，否则一行一行的握手会卡在管道缓冲区里互相等。
+        self._proc = subprocess.Popen(
+            [sys.executable, "-u", "-m", "app.english.kokoro_worker"],
+            cwd=str(BACKEND_ROOT),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return self._proc
+
+    def generate(self, text: str, path: Path, *, voice: str) -> None:
+        """合成一句。子进程若中途死了就换一个新的再试一次。
+
+        实测子进程内存并不随句子累积，稳定在 1.15GB 左右；但那 1.15GB 里有 976MB
+        是合成开始前就产生的固定开销（torch 202 + kokoro 依赖 211 + KModel 453 +
+        KPipeline 110），本来就贴着这台机器的可用内存跑。所以它是不是被 kill 取决于
+        当时的整机压力（global_oom，同节点其它进程也在抢），是概率事件而非必然。
+        不重试的话，撞上的那一句会被判 failed 永久留在库里，而它单独跑完全没问题。
+        """
+        last_error = ""
+        for attempt in (1, 2):
+            try:
+                return self._generate_once(text, path, voice=voice)
+            except _KokoroWorkerDied as exc:
+                # 只有进程真死了才值得重试。worker 干净地返回业务错误（空文本之类）
+                # 时不能走这里——那种错误重试多少次都一样，白付 25 秒模型重载。
+                last_error = str(exc)
+                self.close()  # 换一个干净的子进程，顺带把内存还给系统
+                if attempt == 2:
+                    raise RuntimeError(f"{last_error}（换新子进程重试 1 次仍失败）") from exc
+        raise RuntimeError(last_error)
+
+    def _generate_once(self, text: str, path: Path, *, voice: str) -> None:
+        proc = self._ensure()
+        job = json.dumps({"text": text, "path": str(path), "voice": voice}, ensure_ascii=False)
+        try:
+            proc.stdin.write(job + "\n")
+            proc.stdin.flush()
+            reply = proc.stdout.readline()
+        except (BrokenPipeError, ValueError) as exc:
+            raise _KokoroWorkerDied(f"kokoro worker died: {type(exc).__name__}") from exc
+        if not reply:
+            raise _KokoroWorkerDied(f"kokoro worker exited without a reply ({self._death_reason(proc)})")
+        result = json.loads(reply)
+        if not result.get("ok"):
+            # 进程还活着，只是这一句合成失败——原样抛出，不重试、不重启 worker。
+            raise RuntimeError(str(result.get("error") or "kokoro worker failed"))
+
+    @staticmethod
+    def _death_reason(proc: Any) -> str:
+        """子进程为什么没了。退出码比 stderr 有用得多——被 OOM killer 端掉时
+        stderr 里一个字都没有，只有 returncode=-9 能说明问题。之前这里只取
+        stderr 末尾 240 字符，结果截到的是无关的 spaCy 版本警告，真因全被盖住。"""
+        try:
+            code = proc.wait(timeout=5)
+        except Exception:  # noqa: BLE001
+            code = None
+        detail = f"returncode={code}"
+        if code == -9:
+            detail += " SIGKILL，几乎可以肯定是内存不足被内核杀的"
+        elif code == -11:
+            detail += " SIGSEGV"
+        stderr = ""
+        if proc.stderr is not None:
+            try:
+                raw = proc.stderr.read() or ""
+            except Exception:  # noqa: BLE001
+                raw = ""
+            # 滤掉 torch/spaCy 那些每次都刷的警告，只留真正的报错行。
+            lines = [
+                ln.strip()
+                for ln in raw.splitlines()
+                if ln.strip()
+                and "Warning" not in ln
+                and not ln.startswith(" ")
+                and "warnings.warn" not in ln
+            ]
+            stderr = " | ".join(lines[-3:])[:200]
+        return f"{detail}{'; stderr: ' + stderr if stderr else '; stderr 无有效内容'}"
+
+    def close(self) -> None:
+        proc, self._proc = self._proc, None
+        if proc is None:
+            return
+        try:
+            if proc.stdin and not proc.stdin.closed:
+                proc.stdin.close()  # EOF 让 worker 的 for-loop 自然结束
+            proc.wait(timeout=30)
+        except Exception:  # noqa: BLE001 - 收尾绝不能反过来把调用方带崩。
+            proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            for stream in (proc.stdout, proc.stderr):
+                if stream is not None and not stream.closed:
+                    stream.close()
+
+
 def _kokoro_generate_audio(text: str, path: Path, *, voice: str = DEFAULT_KOKORO_VOICE, pipeline: Any = None) -> None:
     try:
         import numpy as np
@@ -318,6 +446,34 @@ def generate_sentence_audio_for_rows(
     max_sentences: int = 0,
     dry_run: bool = False,
 ) -> dict[str, Any]:
+    """公开入口。真正的活在 _generate_rows 里，这层只保证 Kokoro 子进程一定被回收——
+    它有两个 return（max_sentences 封顶、正常收尾）还可能抛异常，靠在出口处逐个补
+    close() 迟早会漏掉一个，漏掉就是一个 700MB 的孤儿进程赖在机器上。"""
+    worker = _KokoroWorker()
+    try:
+        return _generate_rows(
+            rows,
+            worker,
+            overwrite=overwrite,
+            provider=provider,
+            voice=voice,
+            max_sentences=max_sentences,
+            dry_run=dry_run,
+        )
+    finally:
+        worker.close()
+
+
+def _generate_rows(
+    rows: list[dict[str, Any]],
+    kokoro_worker: _KokoroWorker,
+    *,
+    overwrite: bool = False,
+    provider: str | None = None,
+    voice: str | None = None,
+    max_sentences: int = 0,
+    dry_run: bool = False,
+) -> dict[str, Any]:
     generated = 0
     skipped = 0
     failed: list[dict[str, Any]] = []
@@ -325,8 +481,6 @@ def generate_sentence_audio_for_rows(
         raise ValueError("sentence TTS provider and voice must be supplied together")
     if provider is not None and provider not in {"edge", "kokoro"}:
         raise ValueError(f"unsupported sentence TTS provider: {provider}")
-    kokoro_model = None
-    kokoro_pipelines: dict[str, Any] = {}
     audio_settings = repository.get_sentence_audio_settings() if provider is None else None
 
     for row in rows:
@@ -384,19 +538,10 @@ def generate_sentence_audio_for_rows(
                 continue
             row["audio_hash"] = current_hash
             if selected_provider == "kokoro":
-                lang_code = _kokoro_language_code(selected_voice)
-                if lang_code not in kokoro_pipelines:
-                    if kokoro_model is None:
-                        kokoro_model = _kokoro_model()
-                    kokoro_pipelines[lang_code] = _kokoro_pipeline(
-                        lang_code=lang_code,
-                        model=kokoro_model,
-                    )
-                _kokoro_generate_audio(
+                kokoro_worker.generate(
                     str(row.get("text") or ""),
                     path,
                     voice=selected_voice,
-                    pipeline=kokoro_pipelines[lang_code],
                 )
             else:
                 asyncio.run(_edge_tts_save(str(row.get("text") or ""), path, voice=selected_voice))
@@ -501,12 +646,18 @@ def generate_voice_preview(*, provider: str, voice: str) -> Path:
         if path.is_file() and path.stat().st_size > 0:
             return path
         if clean_provider == "kokoro":
-            _kokoro_generate_audio(
-                repository.SENTENCE_AUDIO_PREVIEW_TEXT,
-                path,
-                voice=clean_voice,
-                pipeline=_kokoro_pipeline(lang_code=_kokoro_language_code(clean_voice)),
-            )
+            # 同样走子进程。这条路由是从设置页点「试听」触发的，跑在 uvicorn 里；
+            # 留着进程内合成的话，随手试听一次就把 torch 永久拉进后端，
+            # 前面对生成路径做的隔离等于白做。
+            worker = _KokoroWorker()
+            try:
+                worker.generate(
+                    repository.SENTENCE_AUDIO_PREVIEW_TEXT,
+                    path,
+                    voice=clean_voice,
+                )
+            finally:
+                worker.close()
         else:
             asyncio.run(
                 _edge_tts_save(

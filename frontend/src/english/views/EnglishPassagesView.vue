@@ -282,6 +282,7 @@
                   {{ passageSyncing ? '同步中' : `同步 ${selectedCandidateIndexes.length} 句` }}
                 </button>
               </div>
+              <p v-if="passageSyncMessage" class="mt-2 rounded-md bg-primary/10 px-3 py-2 text-xs text-primary">{{ passageSyncMessage }}</p>
               <div v-if="passageCandidates(activePassage).length" class="mt-3 grid gap-2">
                 <label
                   v-for="(candidate, index) in passageCandidates(activePassage)"
@@ -459,6 +460,7 @@ const {
   passageCompleting,
   passageMessage,
   passageError,
+  passageSyncMessage,
   selectedCandidateIndexes,
   passageTypeFilter,
   passageExamFilter,

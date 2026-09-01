@@ -262,3 +262,26 @@ test('音频预加载同时最多 3 个请求在飞，不会把链路打满', as
     URL.revokeObjectURL = originalRevokeObjectURL
   }
 })
+
+test('同步成功后勾选被清空，并在「标注句子」卡片就地回显结果', async () => {
+  // 这条护的是一次真实故障：同步明明成功了（句子已入库），但 passageMessage 和标题栏的
+  // 「已同步 N 句」都渲染在 main 列顶端，而同步按钮在页面底部的卡片里。点完按钮视口内
+  // 毫无变化——勾还挂着、按钮还写着「同步 1 句」——看起来就像整个按钮是坏的。
+  const originalSync = englishApi.syncPassageSentences
+  englishApi.syncPassageSentences = async () => ({ inserted: 1, reused: 0 })
+
+  try {
+    const editor = usePassageEditor()
+    const passage = { id: 5, title: 'Rats', body_text: 'Rats and other animals.', status: 'reading' }
+    editor.passages.value = [passage]
+    editor.activePassage.value = passage
+    editor.selectedCandidateIndexes.value = [0]
+
+    await editor.syncSelectedCandidates()
+
+    assert.deepEqual(editor.selectedCandidateIndexes.value, [], '勾选必须清空，否则按钮仍写着「同步 1 句」')
+    assert.match(editor.passageSyncMessage.value, /已同步 1 句/, '卡片内必须就地回显，顶端那条用户看不见')
+  } finally {
+    englishApi.syncPassageSentences = originalSync
+  }
+})
