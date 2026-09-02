@@ -6,7 +6,7 @@ BACKEND_PORT="${STUDY_BACKEND_PORT:-8204}"
 FRONTEND_HOST="${STUDY_FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${STUDY_FRONTEND_PORT:-5204}"
 
-curl --retry 3 --retry-delay 1 -fsS "http://$BACKEND_HOST:$BACKEND_PORT/api/health"
+curl --noproxy '*' --retry 3 --retry-delay 1 -fsS "http://$BACKEND_HOST:$BACKEND_PORT/api/health"
 printf '\n'
-curl --retry 3 --retry-delay 1 -fsS "http://$FRONTEND_HOST:$FRONTEND_PORT/api/health"
+curl --noproxy '*' --retry 3 --retry-delay 1 -fsS "http://$FRONTEND_HOST:$FRONTEND_PORT/api/health"
 printf '\n'
