@@ -137,6 +137,23 @@ def check_kokoro_voice_catalog() -> None:
     assert audio_generation._kokoro_language_code("bf_emma") == "b"
 
 
+def check_kokoro_sentence_loudness_normalization() -> None:
+    try:
+        import numpy as np
+    except ImportError:
+        # Kokoro is optional; an Edge-only installation has no waveform to normalize.
+        return
+
+    from app.english.kokoro_worker import KOKORO_TARGET_PEAK, _normalize_kokoro_peak
+
+    quiet = np.array([-0.18, 0.0, 0.09], dtype=np.float32)
+    normalized = _normalize_kokoro_peak(quiet)
+    assert np.isclose(float(np.max(np.abs(normalized))), KOKORO_TARGET_PEAK, atol=1e-6)
+    assert np.isclose(float(normalized[2] / normalized[0]), -0.5, atol=1e-6)
+    silence = np.zeros(12, dtype=np.float32)
+    assert np.array_equal(_normalize_kokoro_peak(silence), silence)
+
+
 def check_dedicated_ai_configuration() -> None:
     names = (
         "STUDY_ENGLISH_AI_BASE_URL",
@@ -1264,6 +1281,7 @@ CHECKS = (
     check_sentence_integrity,
     check_audio_assets,
     check_kokoro_voice_catalog,
+    check_kokoro_sentence_loudness_normalization,
     check_dedicated_ai_configuration,
     check_translation_requires_dedicated_ai_configuration,
     check_library_metadata,
