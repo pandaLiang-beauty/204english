@@ -26,7 +26,9 @@ frontend/dist/
 *.log
 *.pid
 
-# 本机密钥覆盖层。它在 .env.local 之后加载，绝不能提交。
+# 本机配置和密钥覆盖层。它们不应进入版本库；密钥层在 .env.local 之后加载。
+.env.local
+.env.local.bak-*
 .env.secrets.local
 
 # SQLite 边车文件：提交前用 PRAGMA wal_checkpoint(TRUNCATE) 折进 study.db，

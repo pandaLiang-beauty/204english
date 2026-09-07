@@ -20,63 +20,26 @@ from pathlib import Path
 from typing import Any
 
 from .audio_generation import (
-    DEFAULT_KOKORO_SAMPLE_RATE,
     _kokoro_language_code,
     _kokoro_model,
     _kokoro_pipeline,
     _kokoro_voice_source,
-    _make_audio_readable,
     _plain_text,
+    _write_kokoro_audio,
 )
-
-
-KOKORO_TARGET_PEAK = 10 ** (-1 / 20)  # -1 dBFS：留出一点余量，避免编码/播放削波。
-KOKORO_SILENCE_PEAK = 1e-5
-
-
-def _normalize_kokoro_peak(audio: Any):
-    """Keep sentence-to-sentence playback level consistent before WAV output.
-
-    Kokoro occasionally returns a waveform with a much lower gain for an
-    otherwise normal sentence.  Peak-normalising each completed sentence is
-    deterministic, preserves its dynamics, and prevents those outliers from
-    sounding about 8–10 dB quieter than adjacent review items.
-    """
-    import numpy as np
-
-    samples = np.asarray(audio)
-    if samples.size == 0:
-        return samples
-    peak = float(np.max(np.abs(samples)))
-    if peak < KOKORO_SILENCE_PEAK:
-        return samples
-    return samples * (KOKORO_TARGET_PEAK / peak)
 
 
 def _synthesize(pipeline: Any, text: str, path: Path, voice: str) -> None:
     import numpy as np
-    import soundfile as sf
 
     cleaned = _plain_text(text)
     if not cleaned:
         raise ValueError("empty TTS text")
-    path.parent.mkdir(parents=True, exist_ok=True)
     chunks = [audio for _, _, audio in pipeline(cleaned, voice=_kokoro_voice_source(voice))]
     if not chunks:
         raise RuntimeError("kokoro produced no audio")
     audio = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
-    audio = _normalize_kokoro_peak(audio)
-    # 先写同目录临时文件再 replace：父进程读到的文件要么不存在，要么是完整的。
-    # 后缀必须保留 .wav——soundfile 从扩展名推格式，命名成 .part 会直接 TypeError。
-    tmp_path = path.with_name(f".{path.stem}.part{path.suffix or '.wav'}")
-    try:
-        sf.write(tmp_path, audio, DEFAULT_KOKORO_SAMPLE_RATE, format="WAV")
-        if not tmp_path.exists() or tmp_path.stat().st_size <= 0:
-            raise RuntimeError("kokoro wrote an empty audio file")
-        tmp_path.replace(path)
-        _make_audio_readable(path)
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    _write_kokoro_audio(audio, path)
 
 
 def main() -> int:

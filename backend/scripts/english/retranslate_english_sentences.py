@@ -15,6 +15,7 @@ from app.english.translation_quality import (
     stored_translation_issues,
     validate_translation_result,
 )
+from app.english.translation_generation import translation_context_for_sentence
 from app.english.translator import _translate_words_only, extract_words, segment_translation, translate_text
 from app.platform.db import DATA_DIR, get_connection, rows_to_dicts
 
@@ -217,14 +218,21 @@ def _translate_with_retries(
     words_only: bool = False,
 ) -> tuple[dict[str, Any] | None, str]:
     words = _words_for_row(row)
+    source_text = str(row.get("text") or "")
+    context_before, context_after = translation_context_for_sentence(
+        int(row["id"]),
+        expected_text=source_text,
+    )
     last_error = ""
     for attempt in range(retries + 1):
         try:
             if words_only:
                 word_payload = _translate_words_only(
-                    str(row.get("text") or ""),
+                    source_text,
                     words,
                     feedback=last_error if attempt else "",
+                    context_before=context_before,
+                    context_after=context_after,
                 )
                 result = {
                     "sentence_translation": str(row.get("sentence_translation") or ""),
@@ -244,9 +252,11 @@ def _translate_with_retries(
                 ok, reason = _valid_translation(result, [], source_text=str(row.get("text") or ""))
             else:
                 result = translate_text(
-                    str(row.get("text") or ""),
+                    source_text,
                     words=words,
                     feedback=last_error if attempt else "",
+                    context_before=context_before,
+                    context_after=context_after,
                 )
                 ok, reason = _valid_translation(result, words, source_text=str(row.get("text") or ""))
             if ok:

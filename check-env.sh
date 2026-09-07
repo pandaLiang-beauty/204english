@@ -9,6 +9,17 @@ if [[ -f "$ROOT_DIR/.env.local" ]]; then
   source "$ROOT_DIR/.env.local"
   set +a
 fi
+if [[ -f "$ROOT_DIR/.env.secrets.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env.secrets.local"
+  set +a
+fi
+# Do not let generic variables inherited from another subject affect this
+# standalone English configuration check.
+unset STUDY_AI_BASE_URL STUDY_AI_API_KEY STUDY_AI_MODEL STUDY_AI_VISION_MODEL \
+  STUDY_AI_TEMPERATURE STUDY_AI_REASONING_EFFORT STUDY_AI_TIMEOUT_SECONDS \
+  STUDY_AI_ALLOWED_MODELS STUDY_AI_ALLOWED_VISION_MODELS
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -84,7 +95,17 @@ fi
 if [[ -f "$ROOT_DIR/.env.local" ]]; then
   ok ".env.local 存在"
 else
-  warning ".env.local 不存在；AI、公网 Origin、初始密码等需要通过环境变量提供。"
+  warning ".env.local 不存在；公网 Origin、初始密码等需要通过环境变量提供。"
+fi
+
+if [[ -f "$ROOT_DIR/.env.secrets.local" ]]; then
+  ok ".env.secrets.local 存在（英语 AI 唯一配置层）"
+else
+  warning ".env.secrets.local 不存在；英语翻译 AI 配置需要通过环境变量提供。"
+fi
+
+if [[ -f "$ROOT_DIR/.env.local" ]] && grep -Eq '^(STUDY_AI_|STUDY_ENGLISH_AI_)' "$ROOT_DIR/.env.local"; then
+  bad ".env.local 含有 AI 变量；请将英语 AI 配置移到 .env.secrets.local，避免模型来源不明。"
 fi
 
 ok "数据库模式: SQLite (backend/data/study.db)"
@@ -94,7 +115,7 @@ if [[ "$public_origin" == http://* && "$public_origin" != http://127.0.0.1:* && 
   bad "公网 STUDY_PUBLIC_ORIGIN 必须使用 HTTPS。"
 fi
 
-for var in STUDY_AI_BASE_URL STUDY_AI_API_KEY STUDY_AI_MODEL STUDY_INITIAL_PASSWORD; do
+for var in STUDY_ENGLISH_AI_BASE_URL STUDY_ENGLISH_AI_API_KEY STUDY_ENGLISH_AI_MODEL STUDY_INITIAL_PASSWORD; do
   if [[ -n "${!var:-}" ]]; then
     ok "$var 已设置"
   else

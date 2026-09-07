@@ -8,7 +8,13 @@ from typing import Any
 from ..platform.ai_transport import AIProviderError
 from ..platform.db import begin_immediate, get_connection
 from .translation_quality import validate_translation_result, word_translation_issues
-from .translator import extract_words, translate_text, translate_words, translation_configured
+from .translator import (
+    MAX_REFERENCE_CONTEXT_ITEMS,
+    extract_words,
+    translate_text,
+    translate_words,
+    translation_configured,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +42,54 @@ def _json_dumps(value: Any, fallback: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _context_from_connection(conn, sentence_id: int) -> tuple[list[str], list[str]]:
+    before_rows = conn.execute(
+        """
+        SELECT text
+        FROM english_sentences
+        WHERE id < ? AND COALESCE(deleted_at, '') = ''
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (sentence_id, MAX_REFERENCE_CONTEXT_ITEMS),
+    ).fetchall()
+    after_rows = conn.execute(
+        """
+        SELECT text
+        FROM english_sentences
+        WHERE id > ? AND COALESCE(deleted_at, '') = ''
+        ORDER BY id
+        LIMIT ?
+        """,
+        (sentence_id, MAX_REFERENCE_CONTEXT_ITEMS),
+    ).fetchall()
+    before = [str(row["text"] or "") for row in reversed(before_rows)]
+    after = [str(row["text"] or "") for row in after_rows]
+    return before, after
+
+
+def translation_context_for_sentence(
+    sentence_id: int,
+    *,
+    expected_text: str | None = None,
+) -> tuple[list[str], list[str]]:
+    """Load a bounded neighbouring window only for an unchanged stored source."""
+    with get_connection() as conn:
+        current = conn.execute(
+            """
+            SELECT text
+            FROM english_sentences
+            WHERE id = ? AND COALESCE(deleted_at, '') = ''
+            """,
+            (sentence_id,),
+        ).fetchone()
+        if not current:
+            return [], []
+        if expected_text is not None and str(current["text"] or "") != str(expected_text):
+            return [], []
+        return _context_from_connection(conn, sentence_id)
+
+
 def _load_sentence(sentence_id: int) -> dict | None:
     with get_connection() as conn:
         row = conn.execute(
@@ -46,7 +100,13 @@ def _load_sentence(sentence_id: int) -> dict | None:
             """,
             (sentence_id,),
         ).fetchone()
-    return dict(row) if row else None
+        if not row:
+            return None
+        context_before, context_after = _context_from_connection(conn, sentence_id)
+    result = dict(row)
+    result["context_before"] = context_before
+    result["context_after"] = context_after
+    return result
 
 
 def _selected_words(row: dict) -> list[str] | None:
@@ -169,22 +229,35 @@ def translate_sentence_if_missing_best_effort(sentence_id: int, expected_text: s
         text = str(row.get("text") or "")
         words = _selected_words(row)
         missing_words = _missing_words(row)
+        context_before = row.get("context_before") or []
+        context_after = row.get("context_after") or []
         if not str(row.get("sentence_translation") or "").strip():
-            result = translate_text(text, words=words)
+            result = translate_text(
+                text,
+                words=words,
+                context_before=context_before,
+                context_after=context_after,
+            )
             ok, reason = validate_translation_result(result, words or [], source_text=text)
             if ok:
                 _apply_translation_if_still_missing(sentence_id, result, expected_text=text)
                 return
             logger.warning("english auto translation rejected invalid result for sentence %s: %s", sentence_id, reason)
         elif missing_words:
-            result = translate_words(text, words=missing_words)
+            result = translate_words(
+                text,
+                words=missing_words,
+                sentence_translation=str(row.get("sentence_translation") or ""),
+                context_before=context_before,
+                context_after=context_after,
+            )
             issues = word_translation_issues(result, missing_words)
             if not issues:
                 _apply_translation_if_still_missing(sentence_id, result, expected_text=text)
                 return
             logger.warning("english auto word translation rejected invalid result for sentence %s: %s", sentence_id, issues[0])
     except AIProviderError as exc:
-        logger.warning("english auto translation failed for sentence %s: %s", sentence_id, exc.user_message)
+        logger.warning("english auto translation failed for sentence %s: %s", sentence_id, exc.diagnostic)
     except Exception:
         logger.exception("english auto translation crashed for sentence %s", sentence_id)
 

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +18,8 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.english import audio_generation, repository, review_rounds  # noqa: E402
 from app.english import translation_generation  # noqa: E402
 from app.english import translator  # noqa: E402
+from app.english import translation_transport  # noqa: E402
+from app.english.translation_glossary import expand_unique_quote, ground_word_cards  # noqa: E402
 from app.english.ranking import (  # noqa: E402
     build_review_schedule,
     sentence_exposure_metrics,
@@ -140,18 +144,55 @@ def check_kokoro_voice_catalog() -> None:
 def check_kokoro_sentence_loudness_normalization() -> None:
     try:
         import numpy as np
+        import soundfile  # noqa: F401 - availability gate for optional Kokoro checks.
     except ImportError:
         # Kokoro is optional; an Edge-only installation has no waveform to normalize.
         return
 
-    from app.english.kokoro_worker import KOKORO_TARGET_PEAK, _normalize_kokoro_peak
+    from app.english.audio_generation import (
+        DEFAULT_KOKORO_SAMPLE_RATE,
+        KOKORO_TARGET_LOUDNESS_LUFS,
+        KOKORO_TARGET_TRUE_PEAK_DBFS,
+        _write_kokoro_audio,
+    )
 
-    quiet = np.array([-0.18, 0.0, 0.09], dtype=np.float32)
-    normalized = _normalize_kokoro_peak(quiet)
-    assert np.isclose(float(np.max(np.abs(normalized))), KOKORO_TARGET_PEAK, atol=1e-6)
-    assert np.isclose(float(normalized[2] / normalized[0]), -0.5, atol=1e-6)
-    silence = np.zeros(12, dtype=np.float32)
-    assert np.array_equal(_normalize_kokoro_peak(silence), silence)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        output_path = root / "normalized.wav"
+        seconds = 5
+        timeline = np.arange(DEFAULT_KOKORO_SAMPLE_RATE * seconds) / DEFAULT_KOKORO_SAMPLE_RATE
+        # A quiet body plus an isolated high peak reproduces the shape that
+        # fooled the old peak-only normalization.
+        samples = (0.025 * np.sin(2 * np.pi * 220 * timeline)).astype(np.float32)
+        samples[DEFAULT_KOKORO_SAMPLE_RATE] = 0.9
+        _write_kokoro_audio(samples, output_path)
+
+        measured = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-nostats",
+                "-i",
+                str(output_path),
+                "-af",
+                "loudnorm=I=-16:TP=-1:LRA=7:print_format=json",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+        report_start = measured.stderr.rfind("{")
+        report_end = measured.stderr.rfind("}") + 1
+        assert report_start >= 0 and report_end > report_start, measured.stderr
+        report = json.loads(measured.stderr[report_start:report_end])
+        integrated_lufs = float(report["input_i"])
+        true_peak_dbfs = float(report["input_tp"])
+        assert abs(integrated_lufs - KOKORO_TARGET_LOUDNESS_LUFS) <= 2.0, report
+        assert true_peak_dbfs <= KOKORO_TARGET_TRUE_PEAK_DBFS + 0.1, report
 
 
 def check_dedicated_ai_configuration() -> None:
@@ -174,6 +215,10 @@ def check_dedicated_ai_configuration() -> None:
         assert options["api_key"] == "test-key", options
         assert options["model"] == "provider/deepseek-v4-pro", options
         assert "max_tokens" not in options, options
+
+        # Generic subject variables must never become an English fallback.
+        os.environ["STUDY_AI_MODEL"] = "wrong-subject-model"
+        assert translator._english_ai_options()["model"] == "provider/deepseek-v4-pro"
         os.environ["STUDY_ENGLISH_AI_TEMPERATURE"] = "not-a-number"
         try:
             translator._english_ai_options()
@@ -182,6 +227,7 @@ def check_dedicated_ai_configuration() -> None:
         else:
             raise AssertionError("invalid English AI temperature must be controlled")
     finally:
+        os.environ.pop("STUDY_AI_MODEL", None)
         for name, value in original.items():
             if value is None:
                 os.environ.pop(name, None)
@@ -260,13 +306,15 @@ def check_library_metadata() -> None:
 
 def check_split_translation_pipeline() -> None:
     sentence = "People [人们] often complain that **plastics** are too **durable**."
+    context_before = ["Earlier researchers discussed **plastic** waste. [仅作背景]"]
+    context_after = ["The next sentence changes to recycling policy."]
     responses = [
         {"sentence_translation": "人们抱怨塑料太耐用。"},
         {"sentence_translation": "人们常常抱怨塑料过于耐用。"},
         {
             "words": [
-                {"word": "plastics", "base_translation": "塑料", "context_translation": "塑料", "tip": ""},
-                {"word": "durable", "base_translation": "耐用的", "context_translation": "难以降解的", "tip": ""},
+                {"word": "plastics", "base_translation": "塑料", "context_translation": "塑料", "source_quote": "plastics", "translation_quote": "塑料", "tip": ""},
+                {"word": "durable", "base_translation": "耐用的", "context_translation": "难以降解的", "source_quote": "too durable", "translation_quote": "过于耐用", "tip": ""},
             ],
         },
         {
@@ -290,7 +338,12 @@ def check_split_translation_pipeline() -> None:
     translator._chat_completion = fake_chat
     translator._english_ai_options = lambda: dict(fake_options)
     try:
-        result = translator.translate_text(sentence, words=["plastics", "durable"])
+        result = translator.translate_text(
+            sentence,
+            words=["plastics", "durable"],
+            context_before=context_before,
+            context_after=context_after,
+        )
     finally:
         translator._chat_completion = original_chat
         translator._english_ai_options = original_options
@@ -300,6 +353,15 @@ def check_split_translation_pipeline() -> None:
     first_prompt = calls[0][-1]["content"]
     assert "People often complain that plastics are too durable." in first_prompt, first_prompt
     assert "[人们]" not in first_prompt and "**plastics**" not in first_prompt, first_prompt
+    assert "Earlier researchers discussed plastic waste." in first_prompt, first_prompt
+    assert "[仅作背景]" not in first_prompt, first_prompt
+    assert "<target_sentence>People often complain" in first_prompt, first_prompt
+    assert "相邻项可能来自另一道题或另一篇文章" in first_prompt, first_prompt
+    assert "Earlier researchers discussed plastic waste." in calls[1][-1]["content"], calls[1]
+    assert "Earlier researchers discussed plastic waste." in calls[2][-1]["content"], calls[2]
+    assert "neurology 是“神经学”" in calls[2][-1]["content"], calls[2]
+    assert "<approved_translation>人们常常抱怨塑料过于耐用。</approved_translation>" in calls[2][-1]["content"], calls[2]
+    assert "Earlier researchers discussed plastic waste." not in calls[3][-1]["content"], calls[3]
 
     hyphen_marker_result = {
         "sentence_translation": "一种不置可否的凝视成了常态。",
@@ -315,10 +377,58 @@ def check_split_translation_pipeline() -> None:
     )
     assert "source_segment_coverage_mismatch" not in hyphen_issues, hyphen_issues
 
+    # Compact cuts must retain opening punctuation, and a cut immediately
+    # before a verb complement must be rejected rather than displayed as a
+    # misleading ``results / in fines`` pair.
+    compact = translator._compact_segment_payload(
+        '"pathological gambling" involves risks.',
+        {"cut_after": [2, 4], "translation_segments": ["“病理性赌博”", "涉及风险。"]},
+    )
+    assert compact and compact["sentence_segments"][0].startswith('"pathological'), compact
+    aligned_attribution = translator._translation_aligned_for_final_attribution(
+        "This may backfire, said Minson.",
+        "明森说，这可能会适得其反。",
+    )
+    assert aligned_attribution == "这可能会适得其反，明森说。", aligned_attribution
+    aligned_according = translator._translation_aligned_for_final_attribution(
+        "Eye contact increased avoidance, according to Finnish researchers.",
+        "据芬兰研究人员，眼神接触增强了回避反应。",
+    )
+    assert aligned_according == "眼神接触增强了回避反应，芬兰研究人员称。", aligned_according
+    incomplete_cut_issues = translator.translation_result_issues(
+        {
+            "sentence_translation": "估计结果会导致罚款。",
+            "sentence_segments": ["The plan results", "in fines."],
+            "translation_segments": ["该计划的结果", "会导致罚款。"],
+            "word_translations": {},
+            "word_tips": {},
+        },
+        [],
+        source_text="The plan results in fines.",
+    )
+    assert any(item.startswith("incomplete_sentence_segment_suffix:") for item in incomplete_cut_issues), incomplete_cut_issues
+
+    # A complete noun ending in 为 must not be mistaken for the bare
+    # preposition 为.
+    complete_word_issues = translator.translation_result_issues(
+        {
+            "sentence_translation": "这是一种行为。",
+            "sentence_segments": ["This is a behavior."],
+            "translation_segments": ["这是一种行为。"],
+            "word_translations": {},
+            "word_tips": {},
+        },
+        [],
+        source_text="This is a behavior.",
+    )
+    assert not any(item.startswith("bad_translation_segment_suffix:") for item in complete_word_issues), complete_word_issues
+
     fallback_responses = [
         {"sentence_translation": "人们常常抱怨塑料过于耐用。"},
         {"sentence_translation": "人们常常抱怨塑料过于耐用。"},
         responses[2],
+        {"sentence_segments": [], "translation_segments": []},
+        {"sentence_segments": [], "translation_segments": []},
         {"sentence_segments": [], "translation_segments": []},
         {"sentence_segments": [], "translation_segments": []},
     ]
@@ -337,7 +447,7 @@ def check_split_translation_pipeline() -> None:
     finally:
         translator._chat_completion = original_chat
         translator._english_ai_options = original_options
-    assert fallback_calls == 5, fallback_calls
+    assert fallback_calls == 7, fallback_calls
     assert fallback_result["sentence_segments"] == ["People often complain that plastics are too durable."], fallback_result
     assert fallback_result["translation_segments"] == ["人们常常抱怨塑料过于耐用。"], fallback_result
 
@@ -360,7 +470,7 @@ def check_split_translation_pipeline() -> None:
     finally:
         translator._chat_completion = original_chat
         translator._english_ai_options = original_options
-    assert failed_calls == 1, failed_calls
+    assert failed_calls == 3, failed_calls
 
     word_only_calls = 0
 
@@ -374,6 +484,7 @@ def check_split_translation_pipeline() -> None:
                         "word": "durable",
                         "base_translation": "耐用的",
                         "context_translation": "难以降解的",
+                        "source_quote": "too durable",
                         "tip": "durable = dur + able",
                     }
                 ]
@@ -393,6 +504,217 @@ def check_split_translation_pipeline() -> None:
         "durable": "本义：耐用的；句中：难以降解的"
     }, word_only_result
     assert "sentence_translation" not in word_only_result, word_only_result
+
+
+def check_translation_request_policy_and_evidence() -> None:
+    clock = [0.0]
+    calls = []
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    def completion(_messages, **_kwargs):
+        calls.append(clock[0])
+        if len(calls) == 1:
+            raise translator.AIProviderError("限流", 'AI provider HTTP 429: {"data":{"retryAfterSeconds":44}}')
+        return "ok"
+
+    options = {"base_url": "https://rate-test.invalid/v1", "api_key": "private-test-key", "model": "test"}
+    with patch.dict(os.environ, {"STUDY_ENGLISH_AI_REQUESTS_PER_MINUTE": "20", "STUDY_ENGLISH_AI_MAX_RETRIES": "2"}), patch.dict(
+        translation_transport._gates, {}, clear=True
+    ), patch.object(translation_transport.time, "monotonic", lambda: clock[0]), patch.object(translation_transport.time, "sleep", sleep):
+        assert translation_transport.translation_completion([], options=options, completion=completion) == "ok"
+        assert translation_transport.translation_completion([], options=options, completion=completion) == "ok"
+        assert calls == [0.0, 60.25, 63.25], calls
+        forbidden_calls = []
+
+        def forbidden(_messages, **_kwargs):
+            forbidden_calls.append(True)
+            raise translator.AIProviderError("密钥无效", "AI provider HTTP 401: private-test-key")
+
+        try:
+            translation_transport.translation_completion([], options=options, completion=forbidden)
+        except translator.AIProviderError as exc:
+            assert "private-test-key" not in exc.diagnostic, exc.diagnostic
+        else:
+            raise AssertionError("authentication error was accepted")
+        assert len(forbidden_calls) == 1, forbidden_calls
+
+    candidate = {
+        "word_translations": {"measure": "本义：措施；句中：措施"},
+        "word_evidence_required": True,
+        "items": [{"word": "measure", "source_quote": "a measure", "translation_quote": "一项措施"}],
+    }
+    assert not translator.word_translation_issues(candidate, ["measure"], source_text="Adopt a **measure**.", sentence_translation="通过一项措施。")
+    candidate["items"][0]["translation_quote"] = "法案"
+    assert any(issue.startswith("bad_word_evidence:measure:translation_quote") for issue in translator.word_translation_issues(
+        candidate, ["measure"], source_text="Adopt a measure.", sentence_translation="通过一项措施。"
+    ))
+    candidate["items"][0]["source_quote"] = "a measurement"
+    assert "bad_word_evidence:measure:source_quote" in translator.word_translation_issues(candidate, ["measure"], source_text="Adopt a measure.")
+    assert translator.word_translation_issues({"word_translations": {"measure": "本义：；句中：措施"}}, ["measure"])
+    assert translator._compose_word_translation({"base_translation": "本义：本义：措施", "context_translation": "句中：句中：措施"}) == "本义：措施；句中：措施"
+    assert translator._compose_word_translation({"base_translation": "margin: 利润；利润", "context_translation": "利润率"}) == "本义：利润；句中：利润率"
+    assert expand_unique_quote("不受……的影响", "仍然不受这个国家同化力量的影响。") == "不受这个国家同化力量的影响"
+    assert expand_unique_quote("不受……影响", "不受风影响，也不受雨影响") == "不受……影响"
+    assert expand_unique_quote("不受……影响", "没有相关内容") == "不受……影响"
+    assert expand_unique_quote("……影响", "产生影响") == "……影响"
+    phrase = {"items": [{"word": "slot", "translation": "本义：狭槽；句中：老虎机", "source_quote": "slot machine", "translation_quote": "老虎机"}], "word_translations": {}}
+    ground_word_cards(phrase, "He lost money to one slot machine.", "他在一台老虎机上输钱。")
+    assert phrase["word_translations"]["slot"] == "本义：狭槽；句中：用于 slot machine，整体意为老虎机", phrase
+    neutral = {"items": [{"word": "suit", "translation": "本义：花色；句中：跟出同花色的牌"}], "word_translations": {}}
+    ground_word_cards(neutral, "You must follow suit in this card game.", "你必须跟出同花色的牌。")
+    assert "效仿" not in neutral["word_translations"]["suit"], neutral
+    negative = {"items": [{"word": "Sustainable", "translation": "本义：可持续的；句中：难以为继"}], "word_translations": {}}
+    ground_word_cards(negative, "Ever-rising fares aren't sustainable.", "不断上涨的票价难以为继。")
+    assert negative["word_translations"]["Sustainable"] == "本义：可持续的；句中：可持续的（本句否定结构表示不可持续）", negative
+    modifier = {"items": [{"word": "checked-baggage", "translation": "本义：托运行李；句中：托运行李费"}], "word_translations": {}}
+    ground_word_cards(modifier, "Avoid checked-baggage fees.", "避免托运行李费。")
+    assert "句中：托运行李的（修饰 fees" in modifier["word_translations"]["checked-baggage"], modifier
+    granted = {"items": [{"word": "granted", "translation": "本义：认为理所当然；句中：用于 take for granted，意为视为理所当然"}], "word_translations": {}}
+    ground_word_cards(granted, "He takes his code for granted.", "他将准则视为理所当然。")
+    assert granted["word_translations"]["granted"].startswith("本义：给予；承认；句中："), granted
+    metaphor = {"items": [{"word": "police", "translation": "本义：警察；句中：监管机构"}], "word_translations": {}}
+    ground_word_cards(metaphor, "The food police object.", "饮食卫士反对。")
+    assert "比喻对他人饮食进行说教的人" in metaphor["word_translations"]["police"], metaphor
+    candidate["items"][0] = {"word": "measure", "source_quote": "Adopt a measure", "translation_quote": "一项措施"}
+    assert not translator.word_translation_issues(candidate, ["measure"], source_text="Adopt [采用] a **measure**.", sentence_translation="通过一项措施。")
+
+    anchored = translator._anchored_segment_payload(
+        "First we listen, then we act.",
+        "先听，再行动。",
+        {"source_breaks": ["we listen,"], "translation_breaks": ["先听，"]},
+    )
+    assert anchored == {"sentence_segments": ["First we listen,", "then we act."], "translation_segments": ["先听，", "再行动。"]}, anchored
+    assert translator._anchored_segment_payload("We act.", "我们行动。", {"source_breaks": [], "translation_breaks": []}) == {
+        "sentence_segments": ["We act."], "translation_segments": ["我们行动。"]
+    }
+    assert translator._segments_from_anchors("We act, then we act again.", ["act"]) is None
+    assert translator._segments_from_anchors("We act.", ["We act."]) is None
+    assert translator._segments_from_anchors("We act.", ["We work"]) is None
+    assert translator._anchored_segment_payload("First we listen, then we act.", "先听，再行动。", {
+        "source_breaks": ["we listen,"], "translation_breaks": ["先行动，"]
+    }) is None
+    for auxiliary in ("should", "must", "do", "could"):
+        issues = translator.translation_result_issues({
+            "sentence_translation": "他们应当认真评估这件事。",
+            "sentence_segments": [f"They {auxiliary}", "evaluate the matter carefully."],
+            "translation_segments": ["他们应当", "认真评估这件事。"],
+            "word_translations": {},
+        }, [], source_text=f"They {auxiliary} evaluate the matter carefully.")
+        assert any("auxiliary" in issue for issue in issues), issues
+    with patch.object(translator, "translation_completion", side_effect=AssertionError("Reordered conditions must stay together")):
+        conditional = translator.segment_translation(
+            "It succeeds only if it maintains its image or grows over time.",
+            "它只有在维护形象或持续发展时才会成功。",
+        )
+    assert len(conditional["sentence_segments"]) == len(conditional["translation_segments"]) == 1, conditional
+    assert translator.translation_result_issues({
+        "sentence_translation": "一些人担心，住在美国的移民仍不受影响。",
+        "sentence_segments": ["Some fear that immigrants living within the United States", "remain immune."],
+        "translation_segments": ["一些人担心，住在美国的移民", "仍不受影响。"],
+        "word_translations": {},
+    }, [], source_text="Some fear that immigrants living within the United States remain immune.")
+    for source, target, marker in (
+        ("The bill is doing the rounds.", "法案正在流传审议。", "doing_the_rounds"),
+        ("She is ready for the move.", "她已经做好心理和实际准备。", "ready_for"),
+        ("He could not confide them to his wife.", "他不愿向妻子吐露这些事。", "could_not_confide"),
+        ("They frankly dislike the actors.", "他们表示不喜欢演员。", "frankly_attitude"),
+        ("They face a cascade of different taxes.", "他们面临接连不同税种。", "cascade"),
+        ("It can be less of a setback.", "它不太会成为挫折。", "degree_changed_to_probability"),
+        ("The mystery is that this should come as a surprise to any boss.", "令人费解的是这会让任何老板都惊讶。", "any_under_modal"),
+        ("It is a painful reminder.", "它痛苦地提醒着人们。", "painful_reminder"),
+        ("The occupation of what was once a sovereign nation.", "他们曾为主权国家如今却被占领。", "sovereign_nation"),
+    ):
+        issues = translator.translation_result_issues({
+            "sentence_translation": target, "sentence_segments": [source], "translation_segments": [target], "word_translations": {},
+        }, [], source_text=source)
+        assert any(issue.startswith(f"literal_translation:{marker}") for issue in issues), issues
+
+
+def check_independent_structure_review() -> None:
+    source = "They have viewed its presence as an insult and a painful reminder of the past."
+    assert "view" in translator._structure_review_hint(source)
+    assert "emergence" in translator._structure_review_hint(
+        "The rise of art tracks the emergence of media, and with it, a commercial culture."
+    )
+    assert not translator._structure_review_hint("The new rules apply.")
+    audit = {}
+    approved = "他们将它的存在视为一种侮辱，也视为对往事的沉痛提醒。"
+    with patch.object(translator, "_json_from_chat", return_value={"structure": "两个补语共用一个对象", "sentence_translation": approved}) as completion:
+        actual = translator._review_sentence_only(source, "不应作为重译依据的草稿", audit=audit, context_before=["A telescope stands there."])
+    prompt = json.dumps(completion.call_args.args[0], ensure_ascii=False)
+    assert actual == approved
+    assert "不应作为重译依据的草稿" not in prompt
+    assert "A telescope stands there." in prompt
+    assert audit["review_strategy"] == "independent_source_structure"
+    with patch.object(translator, "_json_from_chat", return_value={"sentence_translation": ""}):
+        try:
+            translator._review_sentence_only(source, approved)
+        except translator.AIProviderError:
+            pass
+        else:
+            raise AssertionError("An empty structural review was accepted")
+    audit = {}
+    grounded = translator.ground_sentence_terms(
+        "A vocal group of Hawaiians viewed their presence as disrespect for sacred land.",
+        "一个立场坚定的夏威夷人群体将他们的存在视为对圣地的不敬。",
+        context_before=["The telescopes were built on the mountain."],
+        audit=audit,
+    )
+    assert grounded == "一个积极发声的夏威夷人群体将这些望远镜的存在视为对圣地的不敬。", grounded
+    assert len(audit["term_repairs"]) == 2, audit
+    assert translator.ground_sentence_terms(
+        "Hawaiians viewed their presence as disrespect for sacred land and a reminder of what was once a sovereign nation.",
+        "他们将（望远镜在山上的）存在视为对圣地的不敬，以及对一个曾经主权国家被占领的提醒。",
+        context_before=["The telescopes were built on the mountain."],
+    ) == "他们将这些望远镜的存在视为对圣地的不敬，以及对一个曾经的主权国家被占领的提醒。"
+    assert translator.ground_sentence_terms("They noticed their presence.", "他们注意到他们的存在。") == "他们注意到他们的存在。"
+    assert translator.ground_sentence_terms("A firm and vocal group objected.", "一个立场坚定且敢于发声的群体表示反对。") == "一个立场坚定且敢于发声的群体表示反对。"
+    with patch.object(translator, "translation_completion", side_effect=AssertionError("Complex shared complements must remain aligned")):
+        result = translator.segment_translation(source, approved)
+    assert result["sentence_segments"] == [source]
+    assert result["translation_segments"] == [approved]
+
+
+def check_focused_word_card_repairs() -> None:
+    approved_translation = "新规则适用。"
+    original = {
+        "items": [
+            {"word": "rules", "translation": "本义：规则；句中：规则", "source_quote": "rules", "translation_quote": "规则"},
+            {"word": "apply", "translation": "本义：适用；句中：适用", "source_quote": "apply", "translation_quote": "执行"},
+        ],
+        "word_translations": {"rules": "本义：规则；句中：规则", "apply": "本义：适用；句中：适用"},
+        "word_tips": {"apply": "旧提示"},
+        "word_evidence_required": True,
+    }
+    repairs = [
+        {
+            "items": [{"word": "apply", "translation": "本义：适用；句中：适用", "source_quote": "apply", "translation_quote": quote}],
+            "word_translations": {"apply": "本义：适用；句中：适用"},
+            "word_tips": {},
+            "word_evidence_required": True,
+        }
+        for quote in ("生效", "适用")
+    ]
+    preserved_card = dict(original["items"][0])
+    with patch.object(translator, "_translate_words_only", side_effect=[original, *repairs]) as generate:
+        result = translator._translate_verified_words("New rules apply.", ["rules", "apply"], sentence_translation=approved_translation)
+    assert [call.args[1] for call in generate.call_args_list] == [["rules", "apply"], ["apply"], ["apply"]]
+    assert all(call.kwargs["sentence_translation"] == approved_translation for call in generate.call_args_list)
+    assert result["items"][0] == preserved_card
+    assert [item["word"] for item in result["items"]] == ["rules", "apply"]
+    assert result["items"][1]["translation_quote"] == "适用"
+    assert not result["word_tips"]
+    with patch.object(translator, "_translate_words_only", side_effect=lambda *_args, **_kwargs: json.loads(json.dumps(repairs[0]))) as generate:
+        try:
+            translator._translate_verified_words("New rules apply.", ["apply"], sentence_translation=approved_translation)
+        except translator.TranslationQualityError as exc:
+            assert "bad_word_evidence:apply" in exc.diagnostic
+            assert exc.candidate["sentence_translation"] == approved_translation
+        else:
+            raise AssertionError("Repeated ungrounded word cards were accepted")
+    assert generate.call_count == 3
 
 
 def check_edit_translation_invalidation() -> None:
@@ -441,6 +763,23 @@ def check_edit_translation_invalidation() -> None:
             assert refreshed and refreshed["word_translations"] == {
                 "new": "本义：新的；句中：新的"
             }, refreshed
+            following_one = repository.create_sentence(text="The first following sentence.")
+            following_two = repository.create_sentence(text="The second following sentence.")
+            repository.create_sentence(text="The third following sentence is outside the window.")
+            before, after = translation_generation.translation_context_for_sentence(
+                int(following_one["id"]),
+                expected_text="The first following sentence.",
+            )
+            assert before == ["The **new** sentence is here."], before
+            assert after == [
+                "The second following sentence.",
+                "The third following sentence is outside the window.",
+            ], after
+            stale_before, stale_after = translation_generation.translation_context_for_sentence(
+                int(following_two["id"]),
+                expected_text="A stale edited source.",
+            )
+            assert stale_before == [] and stale_after == [], (stale_before, stale_after)
     finally:
         platform_db.DB_PATH = original_path
 
@@ -479,13 +818,14 @@ def check_incremental_focus_word_translation() -> None:
                 repository.sentence_translation_source_key(created["text"])
             )
 
-            word_requests: list[tuple[str, list[str] | None]] = []
+            word_requests: list[tuple[str, list[str] | None, list[str] | None, list[str] | None]] = []
 
             def unexpected_full_translation(*_args, **_kwargs):
                 raise AssertionError("incremental focus words must not retranslate the sentence")
 
-            def fake_word_translation(text, *, words=None):
-                word_requests.append((text, words))
+            def fake_word_translation(text, *, words=None, sentence_translation="", context_before=None, context_after=None):
+                assert sentence_translation == "一个已知词和一个新词。", sentence_translation
+                word_requests.append((text, words, context_before, context_after))
                 return {
                     "items": [],
                     "word_translations": {"new": "本义：新的；句中：新出现的"},
@@ -500,7 +840,9 @@ def check_incremental_focus_word_translation() -> None:
                 expected_text="A **known** and **new** word. [新增重点词]",
             )
 
-            assert word_requests == [("A **known** and **new** word. [新增重点词]", ["new"])], word_requests
+            assert word_requests == [
+                ("A **known** and **new** word. [新增重点词]", ["new"], [], [])
+            ], word_requests
             refreshed = repository.get_sentence(int(created["id"]))
             assert refreshed and refreshed["sentence_translation"] == "一个已知词和一个新词。", refreshed
             assert refreshed["sentence_segments"] == ["A known and new word."], refreshed
@@ -978,20 +1320,20 @@ def check_exposure_formula_and_double_peak_repeats() -> None:
         for index in range(5)
     ]
     peak = sentence_exposure_metrics(peak_rows)
-    assert [peak[index]["repeat_count"] for index in range(1, 6)] == [1, 7, 1, 7, 1], peak
+    assert [peak[index]["repeat_count"] for index in range(1, 6)] == [1, 2, 1, 2, 1], peak
     ranked = [(row, {"score": 0}) for row in peak_rows]
     schedule = build_review_schedule(ranked)
     counts = {
         sentence_id: sum(1 for item in schedule if int(item["sentence_id"]) == sentence_id)
         for sentence_id in range(1, 6)
     }
-    assert [counts[index] for index in range(1, 6)] == [1, 7, 1, 7, 1], counts
+    assert [counts[index] for index in range(1, 6)] == [1, 2, 1, 2, 1], counts
     positions = [
         index
         for index, item in enumerate(schedule)
         if int(item["sentence_id"]) == 2
     ]
-    assert len(positions) == 7 and positions == sorted(positions), positions
+    assert len(positions) == 2 and positions == sorted(positions), positions
 
 
 def check_repeated_items_complete_independently_and_wait_until_next_boundary() -> None:
@@ -1023,12 +1365,12 @@ def check_repeated_items_complete_independently_and_wait_until_next_boundary() -
 
             first = repository.list_sentences(user_id=1, sort="smart", page=1, page_size=200, resume=True)
             round_id = int(first["review_round"]["id"])
-            assert first["review_round"]["total"] == 17, first["review_round"]
-            repeated = next(item for item in first["items"] if int(item["review_repeat_total"]) == 7)
+            assert first["review_round"]["total"] == 7, first["review_round"]
+            repeated = next(item for item in first["items"] if int(item["review_repeat_total"]) == 2)
             same_sentence_items = [
                 item for item in first["items"] if int(item["id"]) == int(repeated["id"])
             ]
-            assert len(same_sentence_items) == 7, same_sentence_items
+            assert len(same_sentence_items) == 2, same_sentence_items
 
             completed = repository.review_sentence(
                 user_id=1,
@@ -1047,7 +1389,7 @@ def check_repeated_items_complete_independently_and_wait_until_next_boundary() -
                     """,
                     (round_id, int(repeated["id"])),
                 ).fetchone()["count"]
-            assert int(remaining_same) == 6, remaining_same
+            assert int(remaining_same) == 1, remaining_same
 
             with get_connection() as conn:
                 remaining = conn.execute(
@@ -1154,6 +1496,67 @@ def check_review_rounds_use_fixed_boundaries_and_catch_up_without_request() -> N
             assert included is not None, (latest_id, later)
     finally:
         review_rounds._utc_now = original_now
+        platform_db.DB_PATH = original_path
+        repository.ENGLISH_AUDIO_DIR = original_audio_dir
+
+
+def check_review_round_test_expiry_override() -> None:
+    original_path = platform_db.DB_PATH
+    original_audio_dir = repository.ENGLISH_AUDIO_DIR
+    env_names = (review_rounds.TEST_ROUND_ID_ENV, review_rounds.TEST_EXPIRES_AT_ENV)
+    original_env = {name: os.environ.get(name) for name in env_names}
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            platform_db.DB_PATH = root / "study.db"
+            repository.ENGLISH_AUDIO_DIR = root / "audio"
+            initialize_database()
+            initialize_english_schema()
+            with get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO users(username, password_hash, display_name) VALUES ('admin', 'test', 'Admin')"
+                )
+
+            sentence = repository.create_sentence(text="Test expiry override sentence.")
+            with get_connection() as conn:
+                conn.execute(
+                    "UPDATE english_sentences SET created_at = '2026-08-20T00:00:00+00:00' WHERE id = ?",
+                    (int(sentence["id"]),),
+                )
+            created = repository.advance_due_review_rounds(
+                now=datetime(2026, 8, 21, 0, 0, tzinfo=timezone.utc)
+            )
+            round_id = int(created[0]["round_id"])
+            target = datetime(2026, 8, 22, 21, 45, tzinfo=timezone.utc)
+            os.environ[review_rounds.TEST_ROUND_ID_ENV] = str(round_id)
+            os.environ[review_rounds.TEST_EXPIRES_AT_ENV] = target.isoformat()
+
+            rotated = repository.advance_due_review_rounds(now=target)
+            assert rotated and rotated[0]["created"] is True, rotated
+            assert int(rotated[0]["round_id"]) != round_id, rotated
+            with get_connection() as conn:
+                rounds = conn.execute(
+                    "SELECT * FROM english_review_rounds ORDER BY id"
+                ).fetchall()
+            assert rounds[0]["status"] == "expired", rounds[0]
+            assert rounds[0]["expires_at"] == target.isoformat(), rounds[0]
+            assert rounds[1]["status"] == "active", rounds[1]
+            assert rounds[1]["started_at"] == target.isoformat(), rounds[1]
+            assert rounds[1]["expires_at"] == (target + timedelta(days=7)).isoformat(), rounds[1]
+
+            unchanged = repository.advance_due_review_rounds(now=target + timedelta(minutes=1))
+            assert unchanged and unchanged[0]["created"] is False, unchanged
+            with get_connection() as conn:
+                active = conn.execute(
+                    "SELECT * FROM english_review_rounds WHERE status = 'active'"
+                ).fetchone()
+            assert active["expires_at"] == (target + timedelta(days=7)).isoformat(), active
+    finally:
+        for name, value in original_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
         platform_db.DB_PATH = original_path
         repository.ENGLISH_AUDIO_DIR = original_audio_dir
 
@@ -1286,6 +1689,9 @@ CHECKS = (
     check_translation_requires_dedicated_ai_configuration,
     check_library_metadata,
     check_split_translation_pipeline,
+    check_translation_request_policy_and_evidence,
+    check_independent_structure_review,
+    check_focused_word_card_repairs,
     check_edit_translation_invalidation,
     check_incremental_focus_word_translation,
     check_startup_translation_recovery_scans_only_pending_sentences,
@@ -1299,6 +1705,7 @@ CHECKS = (
     check_exposure_formula_and_double_peak_repeats,
     check_repeated_items_complete_independently_and_wait_until_next_boundary,
     check_review_rounds_use_fixed_boundaries_and_catch_up_without_request,
+    check_review_round_test_expiry_override,
     check_sqlite_review_concurrency_and_stale_audio,
     check_today_passage_keeps_completed_items,
 )

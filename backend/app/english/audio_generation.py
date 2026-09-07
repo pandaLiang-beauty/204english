@@ -25,6 +25,10 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EDGE_VOICE = repository.DEFAULT_WORD_AUDIO_VOICE
 DEFAULT_KOKORO_VOICE = "af_heart"
 DEFAULT_KOKORO_SAMPLE_RATE = 24000
+KOKORO_TARGET_LOUDNESS_LUFS = -16.0
+KOKORO_TARGET_TRUE_PEAK_DBFS = -1.0
+KOKORO_TARGET_LRA = 7.0
+KOKORO_SILENCE_PEAK = 1e-5
 DEFAULT_KOKORO_MODEL_DIR = repository.ENGLISH_DATA_DIR / "kokoro"
 VOICE_PREVIEW_DIR = repository.ENGLISH_AUDIO_DIR / "previews"
 _SENTENCE_GENERATION_LOCK = threading.Lock()
@@ -97,6 +101,93 @@ def _sentence_audio_path(sentence_id: int, *, provider: str, voice: str, suffix:
 
 def _make_audio_readable(path: Path) -> None:
     path.chmod(0o644)
+
+
+def _normalize_kokoro_loudness(source_path: Path, output_path: Path) -> None:
+    """Normalize a completed Kokoro sentence by perceived loudness.
+
+    Peak normalization alone cannot fix speech with isolated high peaks but a
+    low average level. FFmpeg's EBU R128 loudnorm filter brings the integrated
+    loudness close to -16 LUFS while its true-peak limiter keeps playback below
+    -1 dBFS.
+    """
+    loudnorm_filter = (
+        f"loudnorm=I={KOKORO_TARGET_LOUDNESS_LUFS:g}:"
+        f"TP={KOKORO_TARGET_TRUE_PEAK_DBFS:g}:LRA={KOKORO_TARGET_LRA:g}"
+    )
+    try:
+        completed = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-y",
+                "-i",
+                str(source_path),
+                "-af",
+                loudnorm_filter,
+                "-ar",
+                str(DEFAULT_KOKORO_SAMPLE_RATE),
+                "-ac",
+                "1",
+                "-c:a",
+                "pcm_s16le",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("ffmpeg is required for Kokoro loudness normalization") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Kokoro loudness normalization timed out") from exc
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "unknown ffmpeg error").strip()[-240:]
+        raise RuntimeError(f"Kokoro loudness normalization failed: {detail}")
+    if not output_path.is_file() or output_path.stat().st_size <= 0:
+        raise RuntimeError("Kokoro loudness normalization wrote an empty audio file")
+
+
+def _write_kokoro_audio(audio: Any, path: Path) -> None:
+    """Write one complete Kokoro waveform with loudness normalization."""
+    try:
+        import numpy as np
+        import soundfile as sf
+    except ImportError as exc:  # pragma: no cover - depends on optional packages.
+        raise RuntimeError("numpy and soundfile are required for sentence audio") from exc
+
+    samples = np.asarray(audio)
+    if samples.size == 0:
+        raise RuntimeError("kokoro produced empty audio")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Both files live beside the destination so the final replace is atomic:
+    # readers see either the old file or the fully normalized new one.
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{path.stem}.", suffix=".raw.wav", delete=False, dir=str(path.parent)
+    ) as handle:
+        raw_path = Path(handle.name)
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{path.stem}.", suffix=".normalized.wav", delete=False, dir=str(path.parent)
+    ) as handle:
+        normalized_path = Path(handle.name)
+    try:
+        sf.write(raw_path, samples, DEFAULT_KOKORO_SAMPLE_RATE, format="WAV")
+        if not raw_path.is_file() or raw_path.stat().st_size <= 0:
+            raise RuntimeError("kokoro wrote an empty audio file")
+        completed_path = raw_path
+        if float(np.max(np.abs(samples))) >= KOKORO_SILENCE_PEAK:
+            _normalize_kokoro_loudness(raw_path, normalized_path)
+            completed_path = normalized_path
+        completed_path.replace(path)
+        _make_audio_readable(path)
+    finally:
+        raw_path.unlink(missing_ok=True)
+        normalized_path.unlink(missing_ok=True)
 
 
 def _has_word_audio(sentence_id: int, word: str) -> bool:
@@ -409,9 +500,8 @@ class _KokoroWorker:
 def _kokoro_generate_audio(text: str, path: Path, *, voice: str = DEFAULT_KOKORO_VOICE, pipeline: Any = None) -> None:
     try:
         import numpy as np
-        import soundfile as sf
     except ImportError as exc:  # pragma: no cover - depends on optional packages.
-        raise RuntimeError("numpy and soundfile are required for sentence audio") from exc
+        raise RuntimeError("numpy is required for sentence audio") from exc
 
     cleaned = _plain_text(text)
     if not cleaned:
@@ -424,17 +514,7 @@ def _kokoro_generate_audio(text: str, path: Path, *, voice: str = DEFAULT_KOKORO
     if not chunks:
         raise RuntimeError("kokoro produced no audio")
     audio = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=str(path.parent)) as handle:
-        tmp_path = Path(handle.name)
-    try:
-        sf.write(tmp_path, audio, DEFAULT_KOKORO_SAMPLE_RATE)
-        if not tmp_path.exists() or tmp_path.stat().st_size <= 0:
-            raise RuntimeError("kokoro wrote an empty audio file")
-        tmp_path.replace(path)
-        _make_audio_readable(path)
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
+    _write_kokoro_audio(audio, path)
 
 
 def generate_sentence_audio_for_rows(

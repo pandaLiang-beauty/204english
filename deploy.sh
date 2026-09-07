@@ -12,6 +12,7 @@ FRONTEND_SERVICE="${STUDY_FRONTEND_SERVICE_NAME:-pro-study-platform-english-fron
 BACKEND_SERVICE_PATH="${STUDY_BACKEND_SERVICE_PATH:-/etc/systemd/system/$BACKEND_SERVICE.service}"
 FRONTEND_SERVICE_PATH="${STUDY_FRONTEND_SERVICE_PATH:-/etc/systemd/system/$FRONTEND_SERVICE.service}"
 
+# 基础运行配置先加载；密钥覆盖层最后加载，作为英语 AI 配置的唯一运行时来源。
 if [[ -f "$ROOT_DIR/.env.local" ]]; then
   set -a
   # shellcheck disable=SC1091
@@ -24,6 +25,11 @@ if [[ -f "$ROOT_DIR/.env.secrets.local" ]]; then
   source "$ROOT_DIR/.env.secrets.local"
   set +a
 fi
+# The standalone English app reads only STUDY_ENGLISH_AI_*; remove inherited
+# generic subject variables so they cannot be mistaken for its provider.
+unset STUDY_AI_BASE_URL STUDY_AI_API_KEY STUDY_AI_MODEL STUDY_AI_VISION_MODEL \
+  STUDY_AI_TEMPERATURE STUDY_AI_REASONING_EFFORT STUDY_AI_TIMEOUT_SECONDS \
+  STUDY_AI_ALLOWED_MODELS STUDY_AI_ALLOWED_VISION_MODELS
 
 BACKEND_HOST="${STUDY_BACKEND_HOST:-$BACKEND_HOST}"
 BACKEND_PORT="${STUDY_BACKEND_PORT:-$BACKEND_PORT}"

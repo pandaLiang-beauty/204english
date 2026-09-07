@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
@@ -7,6 +8,8 @@ from ..platform.db import begin_immediate
 
 
 ROUND_LENGTH_DAYS = 7
+TEST_ROUND_ID_ENV = "STUDY_ENGLISH_REVIEW_ROUND_TEST_ID"
+TEST_EXPIRES_AT_ENV = "STUDY_ENGLISH_REVIEW_ROUND_TEST_EXPIRES_AT"
 
 
 def _utc_now() -> datetime:
@@ -35,6 +38,21 @@ def _parse(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _test_expiry_override(row: Any) -> datetime | None:
+    """Return a one-round expiry override used for explicit cycle tests."""
+    try:
+        configured_round_id = int(os.getenv(TEST_ROUND_ID_ENV, "").strip())
+    except ValueError:
+        return None
+    if configured_round_id != int(row["id"]):
+        return None
+    target = _parse(os.getenv(TEST_EXPIRES_AT_ENV, ""))
+    started_at = _parse(row["started_at"])
+    if target is None or started_at is None or target <= started_at:
+        return None
+    return target
 
 
 def _expiry_for(now: datetime) -> datetime:
@@ -101,6 +119,19 @@ def normalize_active_round_boundary(conn, *, user_id: int, now: datetime | None 
     row = _round_row(conn, user_id=user_id)
     if not row:
         return None
+    test_expiry = _test_expiry_override(row)
+    if test_expiry is not None:
+        if _parse(row["expires_at"]) != test_expiry:
+            conn.execute(
+                """
+                UPDATE english_review_rounds
+                SET expires_at = ?, updated_at = ?
+                WHERE id = ? AND status = 'active'
+                """,
+                (_iso(test_expiry), _iso(current_now), int(row["id"])),
+            )
+            row = _round_row(conn, user_id=user_id)
+        return dict(row) if row else None
     previous = _previous_round(conn, user_id=user_id, round_id=int(row["id"]))
     if not previous:
         current_expiry = _parse(row["expires_at"])

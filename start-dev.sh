@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="${STUDY_PROJECT_ROOT:-/root/sysStuByAI/204english}"
+# 基础运行配置先加载；英语 AI 的唯一覆盖层随后加载，避免模型/API 来源不明。
 if [[ -f "$ROOT_DIR/.env.local" ]]; then
   set -a
   # shellcheck disable=SC1091
@@ -14,6 +15,12 @@ if [[ -f "$ROOT_DIR/.env.secrets.local" ]]; then
   source "$ROOT_DIR/.env.secrets.local"
   set +a
 fi
+# This repository has no consumer for the old shared ``STUDY_AI_*`` names.
+# Clear inherited copies so a shell that used another subject cannot make the
+# running English process appear to use a second gateway or model.
+unset STUDY_AI_BASE_URL STUDY_AI_API_KEY STUDY_AI_MODEL STUDY_AI_VISION_MODEL \
+  STUDY_AI_TEMPERATURE STUDY_AI_REASONING_EFFORT STUDY_AI_TIMEOUT_SECONDS \
+  STUDY_AI_ALLOWED_MODELS STUDY_AI_ALLOWED_VISION_MODELS
 
 BACKEND_HOST="${STUDY_BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${STUDY_BACKEND_PORT:-8204}"

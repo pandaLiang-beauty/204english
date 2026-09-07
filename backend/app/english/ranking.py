@@ -322,14 +322,14 @@ def sentence_exposure_metrics(rows: list[dict]) -> dict[int, dict]:
     for sentence_id, detail in details.items():
         percentile = float(sentence_percentiles.get(sentence_id, 0.5))
         wave = math.sin(2 * math.pi * percentile) ** 2
-        repeat_count = 1 + int(math.floor(6 * wave + 0.5))
+        repeat_count = 1 + int(math.floor(wave + 0.5))
         detail["percentile"] = percentile
-        detail["repeat_count"] = min(7, max(1, repeat_count))
+        detail["repeat_count"] = min(2, max(1, repeat_count))
     return details
 
 
 def build_review_schedule(ranked_items: list[tuple[dict, dict]]) -> list[dict]:
-    """Expand the smart order into seven evenly spaced repetition passes."""
+    """Expand the smart order into one or two passes across seven slots."""
     if not ranked_items:
         return []
     rows = [row for row, _ in ranked_items]

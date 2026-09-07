@@ -23,6 +23,7 @@ if need_command yum; then
   need_command pdfinfo || packages+=(poppler-utils)
   need_command pdftotext || packages+=(poppler-utils)
   need_command pdftoppm || packages+=(poppler-utils)
+  need_command ffmpeg || packages+=(ffmpeg)
   if ((${#packages[@]})); then
     install_with_yum "${packages[@]}"
   fi
@@ -31,11 +32,12 @@ elif need_command apt-get; then
   if ! need_command pdfinfo || ! need_command pdftotext || ! need_command pdftoppm; then
     packages+=(poppler-utils)
   fi
+  need_command ffmpeg || packages+=(ffmpeg)
   if ((${#packages[@]})); then
     install_with_apt "${packages[@]}"
   fi
 else
-  echo "No supported package manager found. Install poppler-utils manually." >&2
+  echo "No supported package manager found. Install poppler-utils and ffmpeg manually." >&2
   exit 1
 fi
 

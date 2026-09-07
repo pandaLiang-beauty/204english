@@ -143,7 +143,12 @@ test('adding a focus marker requests meanings only for newly unfilled words', as
 
     await list.translateSentenceDraft(sentence)
 
-    assert.deepEqual(wordRequests, [{ text: 'A **known** and **new** word.', words: ['new'] }])
+    assert.deepEqual(wordRequests, [{
+      text: 'A **known** and **new** word.',
+      words: ['new'],
+      sentence_id: initial.id,
+      sentence_translation: initial.sentence_translation
+    }])
     assert.equal(fullTranslationCalls, 0)
     assert.equal(sentence.ui.editDraft.sentenceTranslation, initial.sentence_translation)
     assert.equal(sentence.ui.editDraft.sentenceSegmentsText, 'A known and new word.')

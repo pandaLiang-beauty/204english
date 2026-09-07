@@ -423,8 +423,8 @@ export function useEnglishSentenceList(context = {}) {
       }
       const wordsOnly = sourceUnchanged && missingWords.length > 0
       const result = wordsOnly
-        ? await englishApi.translateWords({ text, words: missingWords })
-        : await englishApi.translateText({ text, words })
+        ? await englishApi.translateWords({ text, words: missingWords, sentence_id: sentence.id, sentence_translation: editDraft.sentenceTranslation })
+        : await englishApi.translateText({ text, words, sentence_id: sentence.id })
       if (JSON.stringify(sentence.ui.editDraft) !== expectedDraft) {
         sentence.ui.message = '内容已修改，已忽略旧翻译结果'
         return

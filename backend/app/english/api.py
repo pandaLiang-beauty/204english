@@ -20,7 +20,10 @@ from .audio_generation import (
     generate_word_audio_for_sentence_ids_best_effort,
     voice_preview_file,
 )
-from .translation_generation import translate_sentences_if_missing_best_effort
+from .translation_generation import (
+    translate_sentences_if_missing_best_effort,
+    translation_context_for_sentence,
+)
 from .translator import translate_text, translate_words, translation_configured
 
 
@@ -63,11 +66,14 @@ class EnglishFocusWordPayload(BaseModel):
 class EnglishTranslatePayload(BaseModel):
     text: str = Field(min_length=1, max_length=12000)
     words: list[str] | None = None
+    sentence_id: int | None = Field(default=None, ge=1)
 
 
 class EnglishWordTranslatePayload(BaseModel):
     text: str = Field(min_length=1, max_length=12000)
     words: list[str] = Field(min_length=1, max_length=40)
+    sentence_translation: str = Field(default="", max_length=12000)
+    sentence_id: int | None = Field(default=None, ge=1)
 
 
 class EnglishAudioSelectionPayload(BaseModel):
@@ -242,7 +248,17 @@ def translate_english_text(
     if not translation_configured():
         raise HTTPException(status_code=400, detail="English translation AI provider is not configured")
     try:
-        return translate_text(payload.text, words=payload.words)
+        context_before, context_after = (
+            translation_context_for_sentence(payload.sentence_id, expected_text=payload.text)
+            if payload.sentence_id is not None
+            else ([], [])
+        )
+        return translate_text(
+            payload.text,
+            words=payload.words,
+            context_before=context_before,
+            context_after=context_after,
+        )
     except AIProviderError as exc:
         logger.warning("english translation request failed: %s", exc.diagnostic)
         raise HTTPException(status_code=http_status_for_ai_error(exc), detail=exc.user_message) from exc
@@ -261,7 +277,18 @@ def translate_english_words(
     if not translation_configured():
         raise HTTPException(status_code=400, detail="English translation AI provider is not configured")
     try:
-        return translate_words(payload.text, words=payload.words)
+        context_before, context_after = (
+            translation_context_for_sentence(payload.sentence_id, expected_text=payload.text)
+            if payload.sentence_id is not None
+            else ([], [])
+        )
+        return translate_words(
+            payload.text,
+            words=payload.words,
+            sentence_translation=payload.sentence_translation,
+            context_before=context_before,
+            context_after=context_after,
+        )
     except AIProviderError as exc:
         logger.warning("english word translation request failed: %s", exc.diagnostic)
         raise HTTPException(status_code=http_status_for_ai_error(exc), detail=exc.user_message) from exc
