@@ -60,7 +60,7 @@ TRANSLATION_PRECISION_RULES = (
     "- 逐一保留小词和范围：few/less/relatively/too/only/still/same/successfully、百分比、时间长度（如 `in two days`）、性别与单复数均不得漏掉或擅自加强。`do much of anything` 是“几乎做任何事情”，不是“做很多事情”。\n"
     "- 否定与比较的作用域要先还原再汉化：`not ... any but X` 表示被否定的任务不涉及 X 以外的任何项，即范围仅限 X，不能译反。`pursuit less of A than of B` 的中心词是名词 pursuit，应译成“追求的与其说是 A，不如说是 B”，不能写成“无法控制地追求的”这种悬空结构。`too + 形容词 + to do` 是完整的程度—结果关系，必须保留“太/过于……而无法……”。\n"
     "- 代词必须沿用实体类型：policies/measures/programs 用“它们/这些措施”，不用“他们”；若提供的连续上下文明确给出 it/they/he 等的先行词，中文应自然还原为“该法院/这些措施”等实体或使用恰当代词，不能仍用含混或类型错误的“它/他们”；只有无法确认先行词时才用中性指代。未说明性别的 child 不擅自写“嫁入”；关系代词开头的文章截句（如 `who could ...`）保留为“能够……的人”等关系片段，不能改成“哪些人”这种独立疑问。\n"
-    "- 固定关系不能靠中文习惯改写：`discourage X from doing` 必须明确译出否定目的，如“劝 X 不要做/阻止 X 做”，不能写成有歧义的“劝阻 X 做”；`rather than just focusing` 是“不只是/并非仅仅关注”，不是“不再关注”；with、分词、based on、to do 不擅自改成因果；`hidden from view` 是“不被看见/隐而不见”，不是主体“看不见”。\n"
+    "- 固定关系不能靠中文习惯改写：`discourage X from doing` 必须明确译出否定目的，如“劝 X 不要做/阻止 X 做”，不能写成有歧义的“劝阻 X 做”，也不能叠成“劝阻 X 不要做”而造成双重否定；`rather than just focusing` 是“不只是/并非仅仅关注”，不是“不再关注”；with、分词、based on、to do 不擅自改成因果；`hidden from view` 是“不被看见/隐而不见”，不是主体“看不见”。\n"
     "- `Instead,` 独立起句时用“相反/取而代之的是/而”，不能写成缺少“不是”前项的“而是，”。句末 `instead` 必须保留“改为/而是”的替代关系；只有确有反向结果才译“反而”。`For another` 作代词时保留“对另一个人/另一种情况而言”，不能一律弱化成“此外”。\n"
     "- 按领域选择实体义：学术出版中的 papers 是“论文”；legal `preempt laws` 是“排除法律适用/使法律失效”；deregulate 是“放松监管”，不自动加强为“完全取消监管”；policy interest 要“服务于/实现重要政策利益（目标）”，不能“应对/回应政策利益”；成本语境的 price tag 是“价格/费用”，不是实体标签；`counterparts` 继承前面的中心名词，`revenue from print` 不擅自缩窄成印刷广告收入。\n"
     "- 名词中心与同位语的指向不得错挂：`two-paycheck status` 是家庭“靠两份工资/双收入的状态”，不是“双份工资”；照料老人语境的 `physical assistance` 是“生活或行动上的帮助/照料”，不是“对身体的援助”。`neuroticism, a personality dimension associated with self-consciousness and anxiety,` 中的同位语只解释 neuroticism，绝不能改挂到后面的 eye contact；所有“名词，同位语，新主语+谓语”结构都要如此复核。\n"
@@ -79,7 +79,7 @@ TRANSLATION_PRECISION_RULES = (
     "\n- 不要用副词破坏名词结构：`another tragic reminder` 必须是“又一次令人悲痛的提醒”，不能是“令人悲痛地提醒”。`the ones that feel bad` 在情感语境中是“让人感觉糟糕的/负面的情感”，不要无据缩成身体“不适”。`understandably` 用“不难理解，……”或“可以理解的是，……”组成完整句，不在主语后硬插“可以理解的是”。"
     "\n- 动宾关系不能因词面重复而打结：`protect stressed people from the increased risk for colds` 是“使承受压力者免受增高的感冒风险/降低其感冒风险”，不能是“降低感冒风险上升”。`most recent measures` 通常是“最新的衡量结果/指标”，不能倒装成“最新的大多数指标”；只有上下文明示数量范围时，most 才译“大多数”。英文同位名词短语在中文中若单放会成为无谓语残句，就应用破折号、“即/这是”或前置定语将它与主句自然衔接。"
     "\n- 最后朗读一次中文并消除直译痕迹：`only when there are comprehensive programs` 写成“只有在建立/有了综合性项目时”，不能出现“只有有”；`achieve fluency in other languages` 用“熟练掌握/流利使用其他语言”，不写“达到流利使用的程度”。同一短句中避免“需要……所需”、“要求出版商……的需求”、“真正成功的获此称号的城市或地区是那些……城市或地区”等重复套层，在不损失信息的前提下改成单层主干。"
-    "\n- 其他已验证搭配：`earned him a modest reputation` 是“为他赢得了一些名气/使他小有名气”，不是“赢得了小有声誉”；`health scares end up with no one listening` 是“健康警报最终无人再理会”，不是“让谁也不再听了”；`terms ... render publishing easier for scientists` 的主语仍是 terms，不得凭空增加“让出版商使……”。食品安全语境中疑似 OCR 的 `only initially toast their bread` 应依“避免烤焦”的句内并列证据作最小修复，表达“只稍微烤/只烤到刚上色”，不能是无意义的“只在最初烤”。"
+    "\n- 其他已验证搭配：`earned him a modest reputation` 是“为他赢得了一些名气/使他小有名气”，不是“赢得了小有声誉”；`health scares end up with no one listening` 是“健康警报最终无人再理会”，不是“让谁也不再听了”；`terms ... render publishing easier for scientists` 的主语仍是 terms，不得凭空增加“让出版商使……”。源文疑似 OCR 或误录时不静默替换词形；按句内证据作最少、保守且自然的解释，必要时在词卡注明疑似误录，不凭领域常识增添颜色、时长或其他事实。"
     "\n- 数量和并列范围也要落到正确中心上：`oxytocin increased the amount of eye contact` 表示眼神交流的时长/次数/量增加，不是含糊的“眼神交流程度”。`services, punctuated by regular chaos when timetables are changed, or planned maintenance is managed incompetently` 中，or 并列的是引发混乱的两种情形，不是把“维护管理不善”与“忍受服务”并列。"
     "\n- position、expense 等多义词不得脱离话题机械套用：`the position of the Church` 在讨论权力安排时通常是“教会的地位”，只有明确谈观点才是“教会的立场”；`make countryside` 在土地稀缺语境是“无法再创造更多乡村土地”，不是建设既有乡村。"
     "\n- 介词和同位复述决定论元关系：`praise X for Y` 是“因 Y 而赞扬 X”，不能把 Y 误作被赞扬对象。`give organizations a basis, a basis for planning to meet the possibilities of ...` 中后一个 a basis 是对前一个 basis 的同位复述，含义是“为规划如何应对可能出现的不同环境提供依据”，不能改成“应对该环境带来的各种可能性”。"
@@ -810,14 +810,14 @@ def _review_from_source_structure(
         [
             {
                 "role": "system",
-                "content": "你是专业英汉译者。先还原英文的句法关系，再独立写出自然、完整的中文。允许把一个长英文句写成两句中文，但所有信息及其关系必须保留。只输出 JSON。",
+                "content": "你是专业英汉译者。先还原英文的句法关系，再独立写出自然、忠实的中文。完整覆盖已有信息；输入是截句时保留未完成状态，不补缺失谓语或结论。允许把一个长英文句写成两句中文，但所有信息及其关系必须保留。只输出 JSON。",
             },
             {
                 "role": "user",
                 "content": (
                     '输出 {"structure":"一句话说明主干和并列项关系","sentence_translation":"完整中文译文"}。\n'
                     f"本次结构提示：{hint}\n"
-                    "只依据英文及可确认的指代翻译，不追加因果、时间或事实。中文每个分句必须有完整主谓或明确承接的中心词；最后通读中文消除悬空定语。\n"
+                    "只依据英文及可确认的指代翻译，不追加因果、时间或事实。完整原句的译文须语法连贯；原文未完成的从句和名词片段保持原有边界，可用省略号提示截断，不强行补成完整判断。\n"
                     "源文已有的短句或名词片段也要译出；没有作品名称依据时不加书名号或编造标题。\n"
                     "恢复代词时仅用最短、必要的实体名称，自然融入句子；不要用括号插入上下文中的地点或背景说明。\n"
                     f"需修正的已知问题：{feedback or '无；仍需逐项核对原文。'}\n"
@@ -883,7 +883,7 @@ def _review_sentence_only(
                     "先逐短语审计候选，再给终稿；issues_found 只记录实际发现的问题，候选完全正确时写 []。无论是否修改，都必须完成下面全部核对。\n"
                     "核对顺序：\n"
                     "1. 先确认句型和范围：陈述/疑问/祈使、主谓宾、否定、情态、条件、让步、转折、因果、比较、数量和时间；再核对每个后置修饰和代词。\n"
-                    "2. 逐个检查容易被润色掩盖的词：either/or、neither/nor、only、still、too、may/would、more/less、百分比、专名和缩写。名词不可擅自改成动词，近义词不可凭感觉替换（fashion models 是“模特”，or 不能改成“或者说”）。\n"
+                    "2. 逐个检查容易被润色掩盖的词：either/or、neither/nor、only、still、too、may/would、more/less、百分比、专名和缩写。名词不可擅自改成动词，近义词不可凭感觉替换（fashion models 是“模特”）。or 必须区分并列选择与同位解释：前者保留或/要么，不能改成因果或解释；确在重述前项的后者可译即/也就是，不能机械套用为二选一。\n"
                     "3. 片段没有提供先行词或后文时，不补背景、不把残句改成完整判断；保持中性指代和未完成状态。明显 OCR/截断短语若直译会无意义，依据句内搭配做最小自然修正，但不要扩写事实。\n"
                     "4. 核对实体类型和代词：hotel、city、event 等谓语指向地方/机构时，those/holders 不要默认译成“人”；them/it 先行词不明时不要擅自命名。\n"
                     "5. 将英文中的数字、时间、专名、代词、连词和程度/限定词逐个在终稿中找到对应项；尤其复核 same、too、successfully、instead、CCTs、性别和单复数。习语可自然表达，但不添加“反而、被视为、兑现、服务”等原文没有的关系或对象。\n"
@@ -977,10 +977,15 @@ def _translate_words_only(
     return result
 
 
+def _merge_feedback(*parts: str) -> str:
+    return "\n\n".join(str(part).strip() for part in parts if str(part or "").strip())
+
+
 def _translate_verified_words(
     sentence: str,
     words: list[str],
     *,
+    feedback: str = "",
     sentence_translation: str = "",
     context_before: list[str] | tuple[str, ...] | None = None,
     context_after: list[str] | tuple[str, ...] | None = None,
@@ -988,6 +993,7 @@ def _translate_verified_words(
     result = _translate_words_only(
         sentence,
         words,
+        feedback=feedback,
         sentence_translation=sentence_translation,
         context_before=context_before,
         context_after=context_after,
@@ -1003,7 +1009,7 @@ def _translate_verified_words(
         repaired = _translate_words_only(
             sentence,
             repair_words,
-            feedback="; ".join(issues) + "。只重做这些词；中文引文可复制完整从句，但不能同义替换或添加省略号。",
+            feedback=_merge_feedback(feedback, "; ".join(issues) + "。只重做这些词；中文引文可复制完整从句，但不能同义替换或添加省略号。"),
             sentence_translation=sentence_translation,
             context_before=context_before,
             context_after=context_after,
@@ -1025,6 +1031,7 @@ def translate_words(
     text: str,
     *,
     words: list[str] | None = None,
+    feedback: str = "",
     sentence_translation: str = "",
     context_before: list[str] | tuple[str, ...] | None = None,
     context_after: list[str] | tuple[str, ...] | None = None,
@@ -1040,6 +1047,7 @@ def translate_words(
     result = _translate_verified_words(
         source_sentence,
         selected_words,
+        feedback=feedback,
         sentence_translation=sentence_translation,
         context_before=context_before,
         context_after=context_after,
@@ -1125,6 +1133,7 @@ def translate_text(
     final_translation = _review_sentence_only(
         source_sentence,
         final_translation,
+        feedback=feedback,
         audit=audit,
         context_before=context_before,
         context_after=context_after,
@@ -1140,11 +1149,12 @@ def translate_text(
     word_payload = _translate_verified_words(
         source_sentence,
         selected_words,
+        feedback=feedback,
         sentence_translation=final_translation,
         context_before=context_before,
         context_after=context_after,
     )
-    segment_payload = segment_translation(source_sentence, final_translation)
+    segment_payload = segment_translation(source_sentence, final_translation, feedback=feedback)
 
     def build_result() -> dict:
         return {
@@ -1165,7 +1175,7 @@ def translate_text(
     advisory_issues = segmentation_advisory_issues(result, source_text=source_sentence)
     issues = [*hard_issues, *advisory_issues]
     if issues:
-        issue_feedback = "; ".join(issues[:6])
+        issue_feedback = _merge_feedback(feedback, "; ".join(issues[:6]))
         if any(
             not _is_sentence_or_word_issue(issue)
             for issue in issues
@@ -1203,6 +1213,7 @@ def translate_text(
                 word_payload = _translate_verified_words(
                     source_sentence,
                     selected_words,
+                    feedback=issue_feedback,
                     sentence_translation=final_translation,
                     context_before=context_before,
                     context_after=context_after,
@@ -1236,7 +1247,7 @@ def translate_text(
         retry_segment_payload = segment_translation(
             source_sentence,
             final_translation,
-            feedback="; ".join([*remaining_hard, *remaining_advisory][:8]),
+            feedback=_merge_feedback(feedback, "; ".join([*remaining_hard, *remaining_advisory][:8])),
         )
         latest_result = {
             "items": word_payload.get("items") or [],

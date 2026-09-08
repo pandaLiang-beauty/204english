@@ -455,6 +455,8 @@ def _clear_split_reason(text: str) -> str:
         return "attribution"
     if _has_internal_sentence_boundary(stripped):
         return "multiple_sentences"
+    if word_count >= 14 and FACT_THAT_PATTERN.search(stripped) and "," in stripped:
+        return "fact_that_sentence"
     # A colon/semicolon normally separates a lead-in from its result or
     # explanation.  Even a 16-word sentence can benefit from that beat.
     if word_count >= 16:
@@ -991,12 +993,6 @@ def translation_result_issues(result: dict[str, Any], words: list[str], *, sourc
         r"[?？]\s*$", sentence
     ):
         issues.append("question_translation_missing")
-
-    if len(sentence_segments) == 1:
-        only_segment = str(sentence_segments[0] or "")
-        word_count = len(WORD_PATTERN.findall(only_segment))
-        if word_count >= 14 and FACT_THAT_PATTERN.search(only_segment) and "," in only_segment:
-            issues.append("undersegmented_fact_that_sentence")
 
     for index, segment in enumerate(sentence_segments):
         text = str(segment or "").strip()

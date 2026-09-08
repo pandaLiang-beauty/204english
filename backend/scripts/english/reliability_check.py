@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 import subprocess
@@ -28,6 +29,9 @@ from app.english.ranking import (  # noqa: E402
 from app.english.schema import initialize_schema as initialize_english_schema  # noqa: E402
 from app.platform import db as platform_db  # noqa: E402
 from app.platform.db import get_connection, initialize_database  # noqa: E402
+from scripts.english import evaluate_translation_pipeline  # noqa: E402
+from scripts.english import finalize_translation_evaluation, repair_translation_evaluation
+from scripts.english import reconcile_translation_focus
 
 
 def _decode_json(raw: object, fallback):
@@ -63,6 +67,387 @@ def _mark_sentence_audio_ready(sentence_id: int) -> dict:
     ready = repository.get_sentence(sentence_id)
     assert ready and ready["audio_available"] is True, ready
     return ready
+
+
+def check_evaluation_review_feedback() -> None:
+    evaluator = evaluate_translation_pipeline
+    with tempfile.TemporaryDirectory() as temp_dir:
+        path = Path(temp_dir) / "feedback.json"
+        path.write_text('{"12":" 保留否定范围 ","2":"只修正词义"}', encoding="utf-8")
+        feedback = evaluator._load_review_feedback(path)
+        assert feedback == {12: "保留否定范围", 2: "只修正词义"}, feedback
+        assert evaluator._load_review_feedback(None) == {}
+        assert evaluator._review_feedback_fingerprint({}) == ""
+        assert evaluator._review_feedback_fingerprint(feedback) == evaluator._review_feedback_fingerprint(dict(reversed(list(feedback.items()))))
+        for invalid in ('[]', '{"0":"invalid"}', '{"one":"invalid"}', '{"1":""}', '{"1":false}', '{"1":"first","01":"second"}'):
+            path.write_text(invalid, encoding="utf-8")
+            try:
+                evaluator._load_review_feedback(path)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(invalid)
+    row = {"id": 12, "text": "The change is not inevitable.", "review_feedback": "保留否定范围"}
+    candidate = {
+        "sentence_translation": "这一变化并非不可避免。",
+        "sentence_segments": [row["text"]],
+        "translation_segments": ["这一变化并非不可避免。"],
+        "word_translations": {},
+        "word_tips": {},
+    }
+    with (
+        patch.object(evaluator, "translate_text", side_effect=[RuntimeError("transient_failure"), candidate]) as translate,
+        patch.object(evaluator, "translation_result_issues", return_value=[]),
+        patch.object(evaluator, "segmentation_advisory_issues", return_value=[]),
+        patch.object(evaluator.time, "sleep"),
+    ):
+        event = evaluator._translate_one(row, retries=1)
+    assert event["status"] == "success", event
+    assert event["review_feedback"] == row["review_feedback"], event
+    assert translate.call_args_list[0].kwargs["feedback"] == "保留否定范围"
+    assert translate.call_args_list[1].kwargs["feedback"] == "保留否定范围\n\ntransient_failure"
+    with patch.object(evaluator, "translate_text", side_effect=RuntimeError("failed generation")):
+        failed = evaluator._translate_one({**row, "sentence_translation": "旧译文"}, retries=0)
+    assert failed["status"] == "failed"
+    assert failed["previous"]["sentence_translation"] == "旧译文"
+    assert failed["previous"]["word_translations"] == {}
+    with tempfile.TemporaryDirectory() as temp_dir:
+        path = Path(temp_dir) / "report.jsonl"
+        start = {
+            "event": "start",
+            "pipeline": "split_translation_v2",
+            "provider_base_url": os.getenv("STUDY_ENGLISH_AI_BASE_URL", ""),
+            "model": os.getenv("STUDY_ENGLISH_AI_MODEL", ""),
+            "prompt_sha256": evaluator._prompt_fingerprint(),
+            "pipeline_sha256": evaluator._pipeline_fingerprint(),
+            "context_window_each_side": evaluator.MAX_REFERENCE_CONTEXT_ITEMS,
+        }
+        path.write_text(json.dumps(start) + "\n", encoding="utf-8")
+        evaluator._validate_resume_compatibility(path)
+        try:
+            evaluator._validate_resume_compatibility(path, review_feedback_sha256="changed-feedback")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("resume accepted changed review feedback")
+
+
+def check_fact_clause_segmentation_is_advisory() -> None:
+    source = "alluding to the fact that before the birth of proper dentistry, mouths were often in a shocking state of hygiene."
+    translation = "暗指在正规牙科出现之前，口腔卫生状况常常令人震惊。"
+    candidate = {"sentence_translation": translation, "sentence_segments": [source], "translation_segments": [translation], "word_translations": {}, "word_tips": {}}
+    assert not translator.translation_result_issues(candidate, [], source_text=source)
+    advisory = translator.segmentation_advisory_issues(candidate, source_text=source)
+    assert any(issue.startswith("undersegmented_fact_that_sentence") for issue in advisory), advisory
+    corrupted = {**candidate, "sentence_segments": ["mouths were often in a shocking state of hygiene."]}
+    assert translator.translation_result_issues(corrupted, [], source_text=source)
+    with (
+        patch.object(translator, "_translate_sentence_only", return_value=translation),
+        patch.object(translator, "_review_sentence_only", return_value=translation),
+        patch.object(translator, "_translate_verified_words", return_value={"items": [], "word_translations": {}, "word_tips": {}}),
+        patch.object(translator, "segment_translation", return_value=candidate) as segments,
+    ):
+        result = translator.translate_text(source, words=[])
+    assert result["sentence_translation"] == translation
+    assert result["sentence_segments"] == [source]
+    assert 2 <= segments.call_count <= 4
+    assert not translator.translation_result_issues(result, [], source_text=source)
+
+
+def check_pipeline_review_feedback_propagation() -> None:
+    source = "New rules apply."
+    feedback = "保持原始语义并修正分块"
+    word_payload = {"items": [], "word_translations": {}, "word_tips": {}}
+    with (
+        patch.object(translator, "_translate_sentence_only", return_value="新规则适用。") as draft,
+        patch.object(translator, "_review_sentence_only", side_effect=["新规则适用。", "新的规则适用。"]) as review,
+        patch.object(translator, "ground_sentence_terms", side_effect=lambda _source, translation, **_kwargs: translation),
+        patch.object(translator, "_translate_verified_words", return_value=word_payload) as words,
+        patch.object(translator, "segment_translation", side_effect=lambda sentence, translation, **_kwargs: {"sentence_segments": [sentence], "translation_segments": [translation]}) as segments,
+        patch.object(translator, "translation_result_issues", return_value=["literal_translation:repair"]),
+        patch.object(translator, "segmentation_advisory_issues", return_value=[]),
+        patch.object(translator, "_segmentation_problem_set", side_effect=[(["bad_segment_count"], []), ([], [])]),
+        patch.object(translator, "_segmentation_candidate_score", return_value=0),
+        patch.object(translator, "_valid_translation_candidate", return_value=(True, "")),
+    ):
+        result = translator.translate_text(source, words=[], feedback=feedback)
+    assert result["sentence_translation"] == "新的规则适用。"
+    assert draft.call_count == 1 and review.call_count == 2 and words.call_count == 2 and segments.call_count == 3
+    for stage in (draft, review, words, segments):
+        assert all(feedback in call.kwargs.get("feedback", "") for call in stage.call_args_list), stage.call_args_list
+    assert "literal_translation:repair" in review.call_args_list[1].kwargs["feedback"]
+    assert "bad_segment_count" in segments.call_args_list[-1].kwargs["feedback"]
+    with patch.object(translator, "_translate_verified_words", return_value=word_payload) as words:
+        translator.translate_words(source, words=["rules"], sentence_translation="新规则适用。", feedback=feedback)
+    assert words.call_args.kwargs["feedback"] == feedback
+
+
+def check_translation_prompt_scope_safeguards() -> None:
+    source = "A charter, or a basic agreement, guides their work."
+    approved = "一份章程，也就是一项基本协议，指导着他们的工作。"
+    with patch.object(translator, "_json_from_chat", return_value={"issues_found": [], "sentence_translation": approved}) as completion:
+        assert translator._review_sentence_only(source, approved) == approved
+    prompt = json.dumps(completion.call_args.args[0], ensure_ascii=False)
+    assert "同位解释" in prompt
+    assert "or 不能改成" not in prompt
+    assert "不静默替换词形" in translator.TRANSLATION_PRECISION_RULES
+    assert "只烤到刚上色" not in translator.TRANSLATION_PRECISION_RULES
+    assert "劝阻 X 不要做" in translator.TRANSLATION_PRECISION_RULES
+    fragment = "When we consider that Shakespeare, who earns their living"
+    fragment_translation = "当我们考虑到莎士比亚——他们靠他谋生——……"
+    with patch.object(translator, "_json_from_chat", return_value={"structure": "未完的宾语从句", "sentence_translation": fragment_translation}) as completion:
+        assert translator._review_from_source_structure(fragment, "保留截句", feedback="不补缺失谓语") == fragment_translation
+    prompt = json.dumps(completion.call_args.args[0], ensure_ascii=False)
+    assert "保留未完成状态" in prompt
+    assert "不补缺失谓语" in prompt
+    assert "中文每个分句必须有完整主谓" not in prompt
+
+
+def check_translation_repair_feedback_history() -> None:
+    repair = repair_translation_evaluation
+    first_feedback = "不新增竞选时间背景"
+    second_feedback = "相当一部分不一定是多数"
+    current_feedback = "统一专名，保留已有修正"
+    first = {
+        "event": "translation", "status": "success", "id": 1, "words": [], "previous": {},
+        "v2": {"sentence_translation": "上一轮中文候选。"}, "review_feedback": first_feedback,
+        "review_history": [first_feedback],
+    }
+    second = {**first, "review_feedback": second_feedback, "review_history": []}
+    with tempfile.TemporaryDirectory() as temp_dir:
+        directory = Path(temp_dir)
+        first_path, second_path, decisions_path = [directory / name for name in ("first.jsonl", "second.jsonl", "decisions.jsonl")]
+        first_path.write_text(json.dumps(first) + "\n", encoding="utf-8")
+        second_path.write_text(json.dumps(second) + "\n", encoding="utf-8")
+        decisions_path.write_text(json.dumps({"report": second_path.name, "revision_requests": {"1": current_feedback}}) + "\n", encoding="utf-8")
+        plan = repair._build_plan([first_path, second_path], decisions_path, {})
+    assert plan[1]["candidate"]["review_history"] == [first_feedback, second_feedback]
+    assert plan[1]["feedback"] == current_feedback
+    with (
+        patch.object(repair, "_repair_once", side_effect=[RuntimeError("transient_retry"), ({}, ["sentence_review"])]) as repair_call,
+        patch.object(repair.time, "sleep"),
+    ):
+        result = repair._repair_one(plan[1], retries=1)
+    for call in repair_call.call_args_list:
+        feedback = call.args[1]
+        assert all(value in feedback for value in (first_feedback, second_feedback, current_feedback, "上一轮中文候选。"))
+        assert feedback.index(current_feedback) > feedback.index(second_feedback)
+    assert "transient_retry" in repair_call.call_args_list[1].args[1]
+    assert result["review_history"] == [first_feedback, second_feedback, current_feedback]
+    assert result["review_feedback"] == current_feedback
+    assert first["review_history"] == [first_feedback]
+
+
+def check_translation_audit_repairs() -> None:
+    repair = repair_translation_evaluation
+    finalize = finalize_translation_evaluation
+    source = "New rules apply."
+    translation = "新规则适用。"
+    rule_card = {"word": "rules", "translation": "本义：规则；句中：规则", "source_quote": "rules", "translation_quote": "规则"}
+    apply_card = {"word": "apply", "translation": "本义：适用；句中：适用", "source_quote": "apply", "translation_quote": "适用"}
+    baseline = {
+        "event": "translation", "status": "success", "id": 1, "report": "baseline.jsonl",
+        "text": source, "source_text": source, "context_before": [], "context_after": [],
+        "words": ["rules", "apply"],
+        "previous": {"sentence_translation": "旧译", "sentence_segments": [], "translation_segments": [], "word_translations": {}, "word_tips": {}},
+        "v2": {
+            "sentence_translation": translation, "sentence_segments": [source], "translation_segments": [translation],
+            "word_translations": {"rules": rule_card["translation"], "apply": apply_card["translation"]},
+            "word_tips": {"rules": "保留提示", "apply": "旧提示"},
+            "word_items": [rule_card, apply_card], "quality_audit": {"review_strategy": "preserved"},
+        },
+    }
+    original = copy.deepcopy(baseline)
+    replacement = {"items": [apply_card], "word_translations": {"apply": apply_card["translation"]}, "word_tips": {}}
+    job = {"candidate": baseline, "stage": "words", "words": ["apply"], "feedback": "只修这个词，保留整句"}
+    with (
+        patch.object(translator, "translate_words", side_effect=[RuntimeError("transport_retry"), replacement]) as word_call,
+        patch.object(translator, "translate_text") as sentence_call,
+        patch.object(translator, "segment_translation") as segment_call,
+        patch.object(repair.time, "sleep"),
+    ):
+        repaired = repair._repair_one(job, retries=1)
+    assert repaired["status"] == "success", repaired
+    assert word_call.call_count == 2
+    assert word_call.call_args_list[0].kwargs["feedback"] == job["feedback"]
+    assert job["feedback"] in word_call.call_args_list[1].kwargs["feedback"]
+    assert "transport_retry" in word_call.call_args_list[1].kwargs["feedback"]
+    assert all(call.kwargs["sentence_translation"] == translation for call in word_call.call_args_list)
+    assert not sentence_call.called and not segment_call.called
+    assert baseline == original
+    assert repaired["v2"]["word_items"][0] == original["v2"]["word_items"][0]
+    assert repaired["v2"]["word_tips"] == {"rules": "保留提示"}
+    for field in ("sentence_translation", "sentence_segments", "translation_segments", "quality_audit"):
+        assert repaired["v2"][field] == original["v2"][field], field
+    assert repaired["previous"] == original["previous"]
+    assert repaired["repair"]["inherited_full_pipeline_candidate"] is True
+    assert repaired["repair"]["executed_stages"] == ["word_cards"]
+
+    segment_job = {**job, "stage": "segments", "words": []}
+    with (
+        patch.object(translator, "segment_translation", return_value={"sentence_segments": ["New rules"], "translation_segments": [translation]}) as segment_call,
+        patch.object(translator, "translate_words") as word_call,
+    ):
+        segmented = repair._repair_one(segment_job, retries=0)
+    assert segmented["status"] == "success", segmented
+    assert segment_call.call_args.kwargs["feedback"] == job["feedback"]
+    assert not word_call.called
+    assert segmented["v2"]["sentence_segments"] == [source]
+    assert segmented["v2"]["translation_segments"] == [translation]
+    assert "safe_single_block_fallback" in segmented["repair"]["executed_stages"]
+
+    new_translation = "新的规则适用。"
+    full_result = {**copy.deepcopy(baseline["v2"]), "sentence_translation": new_translation, "translation_segments": [new_translation], "items": [rule_card, apply_card]}
+    with patch.object(translator, "translate_text", return_value=full_result) as sentence_call:
+        full = repair._repair_one({**job, "stage": "sentence", "words": []}, retries=0)
+    assert full["status"] == "success", full
+    assert full["v2"]["translation_segments"] == [new_translation]
+    assert full["repair"]["inherited_full_pipeline_candidate"] is False
+    assert sentence_call.call_args.kwargs["feedback"] == job["feedback"]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        directory = Path(temp_dir)
+        baseline_path = directory / "baseline.jsonl"
+        repaired_path = directory / "repaired.jsonl"
+        ledger_path = directory / "reviews.jsonl"
+        routes_path = directory / "routes.json"
+        baseline_path.write_text(json.dumps(baseline) + "\n", encoding="utf-8")
+        repaired_path.write_text(json.dumps(repaired) + "\n", encoding="utf-8")
+        rejected = {"report": baseline_path.name, "revision_requests": {"1": "source grounded feedback"}}
+        accepted = {"report": baseline_path.name, "accepted_ids": [1]}
+        ledger_path.write_text(json.dumps(rejected) + "\n" + json.dumps(accepted) + "\n", encoding="utf-8")
+        assert repair._build_plan([baseline_path], ledger_path, {}) == {}
+        assert set(finalize._accepted_candidates([baseline_path], ledger_path)) == {1}
+        ledger_path.write_text(json.dumps(rejected) + "\n", encoding="utf-8")
+        routes_path.write_text('{"1":{"stage":"words","words":["apply"]}}', encoding="utf-8")
+        plan = repair._build_plan([baseline_path], ledger_path, repair._load_routes(routes_path))
+        assert plan[1]["stage"] == "words" and plan[1]["words"] == ["apply"]
+        assert plan[1]["feedback"] == rejected["revision_requests"]["1"]
+        for route in ({1: {"stage": "words", "words": ["unknown"]}}, {1: {"stage": "words", "words": []}}):
+            try:
+                repair._build_plan([baseline_path], ledger_path, route)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("invalid partial-stage selection accepted")
+        routes_path.write_text('{"1":{"stage":"sentence"},"01":{"stage":"sentence"}}', encoding="utf-8")
+        try:
+            repair._load_routes(routes_path)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("duplicate normalized route ids accepted")
+        for reports in ([baseline_path], [baseline_path, repaired_path]):
+            try:
+                finalize._accepted_candidates(reports, ledger_path)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("unreviewed candidate was exportable")
+        ledger_path.write_text(json.dumps({"report": repaired_path.name, "accepted_ids": [1]}) + "\n", encoding="utf-8")
+        assert set(finalize._accepted_candidates([baseline_path, repaired_path], ledger_path)) == {1}
+        for changed_field in ("previous", "evidence"):
+            corrupted = copy.deepcopy(repaired)
+            if changed_field == "previous":
+                corrupted["previous"]["sentence_translation"] = "another snapshot"
+            else:
+                corrupted["v2"]["word_items"][0]["translation_quote"] = "不存在的引文"
+            repaired_path.write_text(json.dumps(corrupted) + "\n", encoding="utf-8")
+            try:
+                finalize._accepted_candidates([baseline_path, repaired_path], ledger_path)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"invalid {changed_field} was exportable")
+        contract = {"plan_sha256": "expected"}
+        resume_path = directory / "resume.jsonl"
+        resume_path.write_text(json.dumps({"event": "repair_start", "contract": contract}) + "\n" + json.dumps(repaired) + "\n", encoding="utf-8")
+        assert repair._validate_resume(resume_path, contract) == {1}
+        try:
+            repair._validate_resume(resume_path, {"plan_sha256": "changed"})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("changed repair contract accepted on resume")
+        resume_path.write_text(resume_path.read_text(encoding="utf-8") + '{"event":', encoding="utf-8")
+        try:
+            repair._validate_resume(resume_path, contract)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("truncated report accepted on resume")
+
+
+def check_translation_focus_reconciliation() -> None:
+    reconcile = reconcile_translation_focus
+    source = "New rules apply."
+    translation = "新规则适用。"
+    rules = {"word": "rules", "translation": "本义：规则；句中：规则", "source_quote": "rules", "translation_quote": "规则"}
+    apply_word = {"word": "apply", "translation": "本义：适用；句中：适用", "source_quote": "apply", "translation_quote": "适用"}
+    original = {
+        "event": "translation", "status": "success", "id": 1, "report": "baseline.jsonl",
+        "text": "New **rules** apply.", "source_text": source, "words": ["rules"],
+        "context_before": [], "context_after": [],
+        "previous": {"sentence_translation": "旧译文", "sentence_segments": [], "translation_segments": [], "word_translations": {"rules": "原释义"}, "word_tips": {}},
+        "v2": {"sentence_translation": translation, "sentence_segments": [source], "translation_segments": [translation], "word_translations": {"rules": rules["translation"]}, "word_tips": {}, "word_items": [rules]},
+    }
+    row = {
+        "id": 1, "text": "New **rules** **apply**.", "sentence_translation": "旧译文",
+        "sentence_segments_json": "[]", "translation_segments_json": "[]",
+        "word_translations_json": json.dumps({"rules": "原释义", "apply": ""}), "word_tips_json": "{}",
+        "context_before": [], "context_after": [],
+    }
+    originals = {1: original}
+    approvals = {("baseline.jsonl", 1): "accepted"}
+    jobs = reconcile._focus_jobs(originals, originals, [row], approvals)
+    assert list(jobs) == [1]
+    with (
+        patch.object(translator, "translate_words", return_value={"items": [apply_word], "word_translations": {"apply": apply_word["translation"]}, "word_tips": {}}) as words,
+        patch.object(translator, "translate_text") as sentences,
+        patch.object(translator, "segment_translation") as segments,
+    ):
+        event = reconcile._reconcile_one(jobs[1])
+    assert words.call_args.kwargs["words"] == ["apply"]
+    assert words.call_args.kwargs["sentence_translation"] == translation
+    assert not sentences.called and not segments.called
+    assert event["text"] == row["text"] and event["words"] == ["rules", "apply"]
+    assert event["v2"]["sentence_translation"] == translation
+    assert event["v2"]["sentence_segments"] == original["v2"]["sentence_segments"]
+    assert event["v2"]["word_items"][0] == rules
+    assert event["previous"]["word_translations"]["apply"] == ""
+    assert event["focus_rebase"]["added_words"] == ["apply"]
+    reconcile._validate_rebase_provenance(original, event)
+    for changes in (
+        {"text": "Old **rules** **apply**."},
+        {"sentence_translation": "用户重新编辑的整句翻译"},
+        {"word_translations_json": json.dumps({"rules": "用户修正的词义", "apply": ""})},
+        {"word_tips_json": json.dumps({"rules": "用户新助记"})},
+        {"context_before": ["New context."]},
+    ):
+        try:
+            reconcile._focus_jobs(originals, originals, [{**row, **changes}], approvals)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"unsafe concurrent edit accepted: {changes}")
+    corrupted = copy.deepcopy(event)
+    corrupted["focus_rebase"]["current_snapshot_sha256"] = "changed"
+    try:
+        reconcile._validate_rebase_provenance(original, corrupted)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("altered focus-rebase snapshot was accepted")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        directory = Path(temp_dir)
+        baseline_path = directory / "baseline.jsonl"
+        focus_path = directory / "focus.jsonl"
+        ledger = directory / "reviews.jsonl"
+        baseline_path.write_text(json.dumps(original) + "\n", encoding="utf-8")
+        focus_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+        ledger.write_text(json.dumps({"report": focus_path.name, "accepted_ids": [1]}) + "\n", encoding="utf-8")
+        exported = finalize_translation_evaluation._accepted_candidates([baseline_path, focus_path], ledger)
+        assert exported[1]["words"] == ["rules", "apply"]
 
 
 def check_sentence_integrity() -> None:
@@ -699,9 +1084,10 @@ def check_focused_word_card_repairs() -> None:
     ]
     preserved_card = dict(original["items"][0])
     with patch.object(translator, "_translate_words_only", side_effect=[original, *repairs]) as generate:
-        result = translator._translate_verified_words("New rules apply.", ["rules", "apply"], sentence_translation=approved_translation)
+        result = translator._translate_verified_words("New rules apply.", ["rules", "apply"], sentence_translation=approved_translation, feedback="原始词卡审阅要求")
     assert [call.args[1] for call in generate.call_args_list] == [["rules", "apply"], ["apply"], ["apply"]]
     assert all(call.kwargs["sentence_translation"] == approved_translation for call in generate.call_args_list)
+    assert all("原始词卡审阅要求" in call.kwargs.get("feedback", "") for call in generate.call_args_list)
     assert result["items"][0] == preserved_card
     assert [item["word"] for item in result["items"]] == ["rules", "apply"]
     assert result["items"][1]["translation_quote"] == "适用"
@@ -1690,6 +2076,13 @@ CHECKS = (
     check_library_metadata,
     check_split_translation_pipeline,
     check_translation_request_policy_and_evidence,
+    check_evaluation_review_feedback,
+    check_fact_clause_segmentation_is_advisory,
+    check_pipeline_review_feedback_propagation,
+    check_translation_prompt_scope_safeguards,
+    check_translation_repair_feedback_history,
+    check_translation_audit_repairs,
+    check_translation_focus_reconciliation,
     check_independent_structure_review,
     check_focused_word_card_repairs,
     check_edit_translation_invalidation,

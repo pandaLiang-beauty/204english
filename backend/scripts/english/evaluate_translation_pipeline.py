@@ -135,7 +135,34 @@ def _completed_ids(path: Path) -> set[int]:
     return completed
 
 
-def _validate_resume_compatibility(path: Path) -> None:
+def _load_review_feedback(path: Path | None) -> dict[int, str]:
+    if path is None:
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Review feedback must be a JSON object mapping sentence ids to feedback strings")
+    feedback: dict[int, str] = {}
+    for identifier, value in payload.items():
+        try:
+            sentence_id = int(identifier)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid review feedback sentence id: {identifier!r}") from exc
+        if sentence_id <= 0 or sentence_id in feedback:
+            raise ValueError(f"Invalid or duplicate review feedback sentence id: {identifier!r}")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"Review feedback for sentence {sentence_id} must be a nonempty string")
+        feedback[sentence_id] = value.strip()
+    return feedback
+
+
+def _review_feedback_fingerprint(feedback: dict[int, str]) -> str:
+    if not feedback:
+        return ""
+    payload = json.dumps(feedback, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validate_resume_compatibility(path: Path, *, review_feedback_sha256: str = "") -> None:
     """Refuse to combine successful rows produced by different contracts."""
     expected = {
         "pipeline": "split_translation_v2",
@@ -157,6 +184,8 @@ def _validate_resume_compatibility(path: Path) -> None:
     if not starts:
         raise ValueError(f"Resume report has no start metadata: {path}")
     for line_number, event in starts:
+        if event.get("review_feedback_sha256", "") != review_feedback_sha256:
+            raise ValueError(f"Resume report has different review feedback at line {line_number}")
         missing = [key for key in expected if key not in event]
         if missing:
             raise ValueError(
@@ -184,6 +213,16 @@ def _error_summary(exc: Exception) -> dict[str, str]:
     return summary
 
 
+def _previous_snapshot(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sentence_translation": str(row.get("sentence_translation") or ""),
+        "sentence_segments": _json_loads_list(row.get("sentence_segments_json")),
+        "translation_segments": _json_loads_list(row.get("translation_segments_json")),
+        "word_translations": _json_loads_dict(row.get("word_translations_json")),
+        "word_tips": _json_loads_dict(row.get("word_tips_json")),
+    }
+
+
 def _translate_one(row: dict[str, Any], retries: int) -> dict[str, Any]:
     """Call V2 sequentially per sentence; outer executor is the only concurrency."""
     started = time.monotonic()
@@ -192,6 +231,7 @@ def _translate_one(row: dict[str, Any], retries: int) -> dict[str, Any]:
     source_text = _translation_source(text)
     context_before = list(row.get("context_before") or [])
     context_after = list(row.get("context_after") or [])
+    review_feedback = str(row.get("review_feedback") or "").strip()
     last_error: dict[str, str] | None = None
     last_candidate: dict[str, Any] | None = None
 
@@ -200,7 +240,12 @@ def _translate_one(row: dict[str, Any], retries: int) -> dict[str, Any]:
             result = translate_text(
                 text,
                 words=words,
-                feedback=(last_error or {}).get("diagnostic") or (last_error or {}).get("error", ""),
+                feedback="\n\n".join(
+                    value for value in (
+                        review_feedback,
+                        (last_error or {}).get("diagnostic") or (last_error or {}).get("error", ""),
+                    ) if value
+                ),
                 context_before=context_before,
                 context_after=context_after,
             )
@@ -220,13 +265,8 @@ def _translate_one(row: dict[str, Any], retries: int) -> dict[str, Any]:
                 "context_before": context_before,
                 "context_after": context_after,
                 "words": words,
-                "previous": {
-                    "sentence_translation": str(row.get("sentence_translation") or ""),
-                    "sentence_segments": _json_loads_list(row.get("sentence_segments_json")),
-                    "translation_segments": _json_loads_list(row.get("translation_segments_json")),
-                    "word_translations": _json_loads_dict(row.get("word_translations_json")),
-                    "word_tips": _json_loads_dict(row.get("word_tips_json")),
-                },
+                "review_feedback": review_feedback,
+                "previous": _previous_snapshot(row),
                 "v2": {
                     "sentence_translation": str(result.get("sentence_translation") or ""),
                     "sentence_segments": result.get("sentence_segments") or [],
@@ -257,6 +297,8 @@ def _translate_one(row: dict[str, Any], retries: int) -> dict[str, Any]:
         "context_before": context_before,
         "context_after": context_after,
         "words": words,
+        "review_feedback": review_feedback,
+        "previous": _previous_snapshot(row),
         "candidate": last_candidate,
         **(last_error or {"error_type": "UnknownError", "error": "translation failed"}),
     }
@@ -323,6 +365,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="Optional smoke-test limit; zero evaluates every active sentence.")
     parser.add_argument("--sample-size", type=int, default=0, help="Uniform random sample of active sentences; does not write the database.")
     parser.add_argument("--seed", type=int, default=0, help="Reproducible random sample seed.")
+    parser.add_argument("--feedback-json", type=Path, help="JSON object mapping selected sentence ids to source-grounded review feedback.")
     parser.add_argument(
         "--ids",
         help="Optional comma-separated sentence ids for a focused regression run; cannot be combined with --limit.",
@@ -356,11 +399,17 @@ def main() -> None:
     if args.resume and args.output and args.resume.resolve() != args.output.resolve():
         parser.error("When --resume is used, --output must be omitted or name that same report")
 
+    try:
+        review_feedback = _load_review_feedback(args.feedback_json)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    review_feedback_sha256 = _review_feedback_fingerprint(review_feedback)
+
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     report_path = args.resume or args.output or (DATA_DIR / "audits" / f"v2-translation-evaluation-{timestamp}.jsonl")
     if args.resume:
         try:
-            _validate_resume_compatibility(report_path)
+            _validate_resume_compatibility(report_path, review_feedback_sha256=review_feedback_sha256)
         except (FileNotFoundError, ValueError) as exc:
             parser.error(str(exc))
     completed = _completed_ids(report_path) if args.resume else set()
@@ -375,6 +424,11 @@ def main() -> None:
         missing_ids = selected_ids - {int(row["id"]) for row in rows}
         if missing_ids:
             parser.error(f"unknown or inactive sentence ids: {','.join(str(value) for value in sorted(missing_ids))}")
+    unselected_feedback_ids = set(review_feedback) - {int(row["id"]) for row in rows}
+    if unselected_feedback_ids:
+        parser.error(f"review feedback ids are not selected: {','.join(str(value) for value in sorted(unselected_feedback_ids))}")
+    for row in rows:
+        row["review_feedback"] = review_feedback.get(int(row["id"]), "")
     pending_rows = [row for row in rows if int(row["id"]) not in completed]
 
     start_event = {
@@ -397,6 +451,8 @@ def main() -> None:
         "sample_seed": args.seed if args.sample_size else None,
         "population_count": population_count,
         "selected_ids": [int(row["id"]) for row in rows],
+        "review_feedback_sha256": review_feedback_sha256,
+        "review_feedback_ids": sorted(review_feedback),
     }
     _append_report(report_path, start_event)
     print("START", json.dumps({**start_event, "report_path": str(report_path)}, ensure_ascii=False), flush=True)

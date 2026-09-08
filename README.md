@@ -64,6 +64,29 @@ bash deploy.sh
 
 本次模型切换及逐句复核结果见 [DeepSeek Flash 翻译实测记录](docs/translation-flash-evaluation.md)。
 
+### 全量重译与审校
+
+全量运行使用 `--limit 0 --sample-size 0`，并指定一个新的 `--output`；不要拿新工作流
+直接续写旧版本的报告，也不要在批量生成期间修改其代码或输入。每次修订都保留独立报告、
+模型/代码指纹和实际执行的阶段，不把复用的正确词卡伪装成重新生成。
+
+- `inspect_translation_evaluation.py` 对照原文展示候选、词卡和分块，并读取逐条审阅记录；
+  审阅必须包含语义、中文自然度和术语一致性，而不仅是本地校验结果。
+- `repair_translation_evaluation.py` 根据具体反馈只重做整句、指定词卡或分块；多轮修订
+  累积历史约束并提供上一轮中文，防止修正一处后丢掉已确认的人名、范围或逻辑关系。
+- `reconcile_translation_focus.py` 仅在英文原文、整句旧译和保留词卡未被实质修改时，
+  合并运行期间新增的重点词；保留已审阅译文，只为新词制卡，新结果仍须单独复核。
+- `finalize_translation_evaluation.py` 只导出每个 ID 的最新已接受版本；未审阅、缺句、
+  证据无效或来源快照不一致都会拒绝导出。按生成、修订、重点词合并的顺序传入报告。
+- `apply_translation_evaluation.py` 先不加 `--apply` 做预检，通过后再指定
+  `--apply --backup <新的备份文件>`；事务内再次核对当前库，只更新翻译相关字段，
+  不重建复习安排或覆盖音频、播放次数和完成进度。
+
+这些脚本均位于 `backend/scripts/english/`，支持 `--help`。分块数量不足只触发安全重试；
+没有可靠双语切点时宁可整句一块，不应把正确译文当作翻译失败。源文残句和疑似误录
+保留不确定性，不凭常识补结论。实际全量结果见
+[全量重译与质量复核记录](docs/translation-full-retranslation-20260908.md)。
+
 ## 运行
 
 开发运行：
