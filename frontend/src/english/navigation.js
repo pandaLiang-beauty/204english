@@ -1,10 +1,10 @@
 export const englishNavigation = {
   entryView: 'review',
   nav: [
-    { value: 'review', label: '复习', icon: 'BookOpenCheck' },
-    { value: 'library', label: '句库', icon: 'Map' },
-    { value: 'passages', label: '阅读', icon: 'LayoutList' },
-    { value: 'stats', label: '统计', icon: 'BarChart3' }
+    { value: 'review', label: '句子复习', shortLabel: '复习', icon: 'BookOpenCheck' },
+    { value: 'passages', label: '真题阅读', shortLabel: '阅读', icon: 'BookOpen' },
+    { value: 'library', label: '我的句库', shortLabel: '句库', icon: 'Library' },
+    { value: 'stats', label: '学习记录', shortLabel: '记录', icon: 'BarChart3' }
   ],
   pathViews: {
     '/': 'review',
@@ -22,7 +22,7 @@ export const englishNavigation = {
     stats: '/stats'
   },
   activeNav(view) {
-    return view === 'create' ? 'passages' : view
+    return view === 'create' ? 'library' : view
   }
 }
 

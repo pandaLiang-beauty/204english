@@ -1,352 +1,63 @@
 <template>
-  <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-    <main class="grid w-full min-w-0 max-w-none gap-3">
-          <section  class="overflow-hidden rounded-md border border-border bg-surface">
-            <div class="hidden grid-cols-[72px_minmax(240px,1.5fr)_230px_minmax(150px,0.8fr)_minmax(170px,0.9fr)_76px] gap-3 border-b border-border bg-surface-2 px-3 py-2 text-[11px] font-medium text-muted xl:grid">
-              <div>编号 / 次数</div>
-              <div>句子 / 译文</div>
-              <div>音频 / 音色</div>
-              <div>重点词</div>
-              <div>跨句关联</div>
-              <div class="text-right">操作</div>
-            </div>
-
-            <article
-              v-for="sentence in sentences"
-              :key="sentence.id"
-              class="border-b border-border last:border-b-0"
-            >
-              <div class="grid gap-3 px-3 py-3 xl:grid-cols-[72px_minmax(240px,1.5fr)_230px_minmax(150px,0.8fr)_minmax(170px,0.9fr)_76px] xl:items-start">
-                <div class="min-w-0">
-                  <div class="text-sm font-semibold tabular-nums text-text">#{{ sentence.id }}</div>
-                  <div class="mt-1 flex flex-wrap gap-x-2 text-[11px] tabular-nums text-muted xl:grid xl:gap-0.5">
-                    <span>整句 {{ sentence.review_count }}</span>
-                    <span>单词 {{ sentence.word_play_total }}</span>
-                  </div>
-                  <div class="mt-1 text-[10px] text-muted">{{ compactDate(sentence.updated_at || sentence.created_at) }}</div>
-                </div>
-
-                <div class="min-w-0">
-                  <div class="mb-1 text-[10px] font-medium text-muted xl:hidden">句子 / 译文</div>
-                  <div class="line-clamp-2 text-sm leading-5 text-text">{{ plainSentenceText(sentence.text) }}</div>
-                  <div class="mt-1 line-clamp-2 text-xs leading-5 text-muted">
-                    {{ sentence.sentence_translation || '暂无译文' }}
-                  </div>
-                  <div v-if="sentence.ui.message" class="mt-1 text-[11px] text-primary">{{ sentence.ui.message }}</div>
-                </div>
-
-                <div class="min-w-0">
-                  <div class="mb-1 text-[10px] font-medium text-muted xl:hidden">音频 / 音色</div>
-                  <div class="flex min-w-0 items-start gap-2">
-                    <button
-                      type="button"
-                      :class="sentenceAudioButtonClass(sentence)"
-                      :disabled="!sentence.audio_available || !sentence.audio_url"
-                      :title="sentence.ui.audioPlaying ? '暂停整句' : '播放整句'"
-                      @click="toggleSentenceAudio(sentence)"
-                    >
-                      <Pause v-if="sentence.ui.audioPlaying" class="h-4 w-4" />
-                      <Play v-else class="h-4 w-4" />
-                      <span class="sr-only">{{ sentence.ui.audioPlaying ? '暂停整句' : '播放整句' }}</span>
-                    </button>
-                    <div class="min-w-0 text-[11px] leading-5 text-muted">
-                      <div :class="sentenceAudioStatusClass(sentence)" :title="sentence.audio_error || ''">
-                        {{ sentenceAudioStatusLabel(sentence) }}
-                      </div>
-                      <div class="truncate text-text" :title="sentenceAudioIdentity(sentence)">
-                        当前 {{ sentenceAudioIdentity(sentence) }}
-                      </div>
-                      <div class="truncate" :title="wordAudioIdentity(sentence)">
-                        单词 {{ wordAudioIdentity(sentence) }} · {{ sentence.word_audio_count ?? Object.keys(sentence.pronunciations || {}).length }}/{{ focusWordCount(sentence) }}
-                      </div>
-                    </div>
-                  </div>
-                  <select
-                    class="mt-1.5 h-7 w-full rounded-md border border-border bg-bg px-1.5 text-[11px] text-text outline-none focus:border-primary disabled:opacity-50"
-                    :value="sentenceAudioSelection(sentence)"
-                    :disabled="audioSettingsLoading || sentence.ui.audioVoiceSaving"
-                    :aria-label="`句子 ${sentence.id} 的整句音色`"
-                    @change="changeSentenceAudioVoice(sentence, $event)"
-                  >
-                    <option value="">跟随全局 · {{ globalSentenceAudioIdentity() }}</option>
-                    <optgroup
-                      v-for="group in audioVoiceGroups"
-                      :key="group.key"
-                      :label="group.label"
-                    >
-                      <option
-                        v-for="voice in group.voices"
-                        :key="audioVoiceKey(voice.provider, voice.voice)"
-                        :value="audioVoiceKey(voice.provider, voice.voice)"
-                        :disabled="!voice.available"
-                      >
-                        {{ audioVoiceOptionLabel(voice) }}
-                      </option>
-                    </optgroup>
-                  </select>
-                </div>
-
-                <div class="min-w-0">
-                  <div class="mb-1 flex items-center justify-between gap-2 text-[10px] font-medium text-muted xl:hidden">
-                    <span>重点词</span><span>{{ focusWordCount(sentence) }}</span>
-                  </div>
-                  <div v-if="wordEntries(sentence).length" class="flex flex-wrap gap-1.5">
-                    <button
-                      v-for="entry in wordEntries(sentence).slice(0, 3)"
-                      :key="entry.word"
-                      type="button"
-                      class="max-w-full truncate rounded border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary transition hover:bg-primary/15 disabled:opacity-50"
-                      :disabled="sentence.ui.wordPlaying === entry.word"
-                      :title="wordEntryTitle(entry)"
-                      @click="playWord(sentence, entry.word)"
-                    >
-                      {{ entry.word }}
-                    </button>
-                    <span v-if="wordEntries(sentence).length > 3" class="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-muted">
-                      +{{ wordEntries(sentence).length - 3 }}
-                    </span>
-                  </div>
-                  <div v-else class="text-[11px] text-muted">无重点词</div>
-                </div>
-
-                <div class="min-w-0">
-                  <div class="mb-1 flex items-center justify-between gap-2 text-[10px] font-medium text-muted xl:hidden">
-                    <span>跨句关联</span><span>{{ networkWords(sentence).length }}</span>
-                  </div>
-                  <div v-if="networkWords(sentence).length" class="grid gap-1">
-                    <div
-                      v-for="word in networkWords(sentence).slice(0, 3)"
-                      :key="word.key"
-                      class="flex min-w-0 items-center justify-between gap-2 text-[11px]"
-                      :title="networkWordTitle(word)"
-                    >
-                      <span class="truncate font-medium text-text">{{ word.surface || word.key }}</span>
-                      <span class="shrink-0 tabular-nums text-muted">{{ word.linked_sentences }}句 · 弱{{ Math.round((word.weakness || 0) * 100) }}%</span>
-                    </div>
-                    <div v-if="networkWords(sentence).length > 3" class="text-[10px] text-muted">
-                      另有 {{ networkWords(sentence).length - 3 }} 个关联词
-                    </div>
-                  </div>
-                  <div v-else class="text-[11px] text-muted">无跨句关联</div>
-                </div>
-
-                <div class="flex items-start justify-end gap-1 xl:grid xl:grid-cols-2">
-                  <button
-                    type="button"
-                    class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted transition hover:bg-surface-2 hover:text-text"
-                    :title="sentence.ui.showEditor ? '收起编辑' : '编辑句子'"
-                    @click="toggleEditor(sentence)"
-                  >
-                    <Pencil class="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-danger/40 text-danger transition hover:bg-danger-soft"
-                    title="删除句子"
-                    @click="deleteSentence(sentence)"
-                  >
-                    <Trash2 class="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                <audio
-                  v-if="sentence.audio_available && sentence.audio_url"
-                  :ref="el => setSentenceAudioRef(sentence.id, el)"
-                  class="hidden"
-                  :src="resolveSentenceAudioSrc(sentence)"
-                  :preload="sentence.ui.cachedAudioUrl ? 'auto' : 'none'"
-                  @play="handleSentenceAudioPlay(sentence)"
-                  @pause="handleSentenceAudioPause(sentence)"
-                  @ended="handleSentenceAudioEnded(sentence)"
-                />
-
-                <div v-if="sentence.ui.showEditor" class="rounded-md border border-border bg-bg p-3 xl:col-span-6">
-                  <SentenceEditor
-                    :model-value="sentence.ui.editDraft"
-                    :saving="sentence.ui.saving"
-                    :translating="sentence.ui.translating"
-                    submit-label="保存修改"
-                    @update:model-value="sentence.ui.editDraft = $event"
-                    @translate="translateSentenceDraft(sentence)"
-                    @submit="saveSentence(sentence)"
-                  />
-                </div>
-              </div>
-            </article>
-          </section>
-
-      <div v-if="loading" class="rounded-lg border border-border bg-surface p-6 text-center text-sm text-muted">
-        加载中
-      </div>
-      <div v-else-if="!sentences.length" class="rounded-lg border border-border bg-surface p-6 text-center text-sm text-muted">
-        没有匹配的句子
-      </div>
-
-      <nav class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-3 text-sm">
-        <button
-          type="button"
-          class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-muted transition hover:bg-surface-2 hover:text-text disabled:opacity-40"
-          :disabled="page <= 1 || loading"
-          @click="prevPage"
-        >
-          <ChevronLeft class="h-4 w-4" />
-          上一页
-        </button>
-        <div class="text-muted">
-          第 <span class="font-semibold tabular-nums text-text">{{ page }}</span> /
-          <span class="font-semibold tabular-nums text-text">{{ pageCount }}</span> 页，
-          共 <span class="font-semibold tabular-nums text-text">{{ total }}</span> 条
+  <section class="library-workspace">
+    <form class="library-toolbar" role="search" @submit.prevent="applySearch">
+      <div class="library-search"><Search /><input :value="searchInput" type="search" class="ui-input" aria-label="搜索句子、译文或重点词" placeholder="搜索句子、译文或重点词…" @input="emit('update:search-input', $event.target.value)" /></div>
+      <button type="submit" class="ui-button" :disabled="loading">搜索</button>
+      <select :value="sort" class="ui-input library-sort" aria-label="句库排序" @change="updateSort">
+        <option value="id-desc">最近添加</option><option value="smart">按复习优先级</option><option value="least-reviewed">整句播放最少</option><option value="oldest">最早添加</option><option value="id-asc">编号从小到大</option><option value="missing-audio">优先查看缺音频</option>
+      </select>
+      <RouterLink class="ui-button primary library-add" to="/create"><Plus />添加句子</RouterLink>
+    </form>
+    <div class="library-list-heading"><p>共 <strong>{{ total }}</strong> 句 <span class="quiet-note">· 点击句子查看完整内容</span></p><label class="quiet-note">每页 <select :value="pageSize" aria-label="每页句子数量" @change="updatePageSize"><option v-for="option in pageSizeOptions" :key="option" :value="option">{{ option }}</option></select> 句</label></div>
+    <p v-if="error" class="status-message error mb-4" role="alert">{{ error }}</p>
+    <div v-if="loading" class="surface-panel grid gap-6" role="status"><div v-for="item in 3" :key="item" class="loading-line" /><p class="quiet-note">正在打开句库…</p></div>
+    <div v-else-if="!sentences.length" class="empty-state"><Library /><h2>{{ searchInput ? '还没有找到这句话' : '你的句库，从这里开始' }}</h2><p>{{ searchInput ? '试试句子中的英文单词，或换一个中文关键词。' : '从文章中选句，也可以直接添加想学习的英文。' }}</p><RouterLink v-if="!searchInput" class="ui-button primary" to="/create">添加第一句<Plus /></RouterLink></div>
+    <div v-else class="library-list">
+      <article v-for="sentence in sentences" :key="sentence.id" class="library-row">
+        <div class="library-row-main">
+          <span class="library-id">#{{ sentence.id }}</span>
+          <button type="button" class="library-sentence-button" :aria-expanded="openSentenceId === sentence.id" @click="openSentenceId = openSentenceId === sentence.id ? null : sentence.id">
+            <p class="library-english sentence-reader" lang="en">{{ plainSentenceText(sentence.text) }}</p>
+            <p class="library-chinese">{{ sentence.sentence_translation || '译文准备中…' }}</p>
+            <div class="library-meta"><span>{{ focusWordCount(sentence) }} 个重点词</span><span>整句已听 {{ sentence.review_count || 0 }} 次</span><span>{{ compactDate(sentence.created_at) }} 添加</span></div>
+          </button>
+          <div class="library-row-actions">
+            <button type="button" class="ui-icon-button" :disabled="!sentence.audio_available || !sentence.audio_url" :aria-label="sentence.ui.audioPlaying ? `暂停句子 ${sentence.id}` : `听句子 ${sentence.id}`" @click="toggleSentenceAudio(sentence)"><Pause v-if="sentence.ui.audioPlaying" /><Play v-else /></button>
+            <button type="button" class="ui-icon-button ghost" :aria-expanded="openSentenceId === sentence.id" :aria-label="`查看句子 ${sentence.id} 的详情`" @click="openSentenceId = openSentenceId === sentence.id ? null : sentence.id"><ChevronDown :class="{ 'rotate-180': openSentenceId === sentence.id }" /></button>
+          </div>
         </div>
-        <button
-          type="button"
-          class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-muted transition hover:bg-surface-2 hover:text-text disabled:opacity-40"
-          :disabled="page >= pageCount || loading"
-          @click="nextPage"
-        >
-          下一页
-          <ChevronRight class="h-4 w-4" />
-        </button>
-      </nav>
-    </main>
-
-        <aside  class="order-first grid content-start gap-4 xl:order-last xl:sticky xl:top-4">
-          <section class="rounded-lg border border-border bg-surface p-4">
-            <h2 class="text-sm font-semibold text-text">筛选</h2>
-            <div class="mt-3 grid gap-2">
-              <div class="relative min-w-0">
-                <Search class="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted" />
-                <input
-                  :value="searchInput"
-                  @input="emit('update:search-input', $event.target.value)"
-                  type="search"
-                  class="h-9 w-full rounded-md border border-border bg-bg py-2 pl-9 pr-3 text-sm outline-none transition focus:border-primary"
-                  placeholder="搜索句子 / 释义 / 单词"
-                  @keydown.enter.prevent="applySearch"
-                />
-              </div>
-              <div class="grid grid-cols-[minmax(0,1fr)_90px] gap-2">
-                <select
-                  :value="sort"
-                  class="h-9 min-w-0 rounded-md border border-border bg-bg px-2 text-sm outline-none transition focus:border-primary"
-                  @change="updateSort"
-                >
-                  <option value="smart">智能复习</option>
-                  <option value="least-reviewed">最少复习</option>
-                  <option value="latest">最新添加</option>
-                  <option value="oldest">最早添加</option>
-                  <option value="id-asc">编号升序</option>
-                  <option value="id-desc">编号降序</option>
-                  <option value="missing-audio">缺音频</option>
-                </select>
-                <select
-                  :value="pageSize"
-                  class="h-9 rounded-md border border-border bg-bg px-2 text-sm outline-none transition focus:border-primary"
-                  @change="updatePageSize"
-                >
-                  <option v-for="option in pageSizeOptions" :key="option" :value="option">{{ option }}</option>
-                </select>
-              </div>
-              <button
-                type="button"
-                class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-60"
-                :disabled="loading"
-                @click="applySearch"
-              >
-                <Search class="h-4 w-4" />
-                应用
-              </button>
+        <div v-if="openSentenceId === sentence.id" class="library-detail">
+          <div class="library-full-text"><p class="sentence-reader" lang="en">{{ plainSentenceText(sentence.text) }}</p><p>{{ sentence.sentence_translation || '译文准备中…' }}</p></div>
+          <SentenceWords :sentence="sentence" :play-word="playWord" />
+          <details class="library-audio-settings">
+            <summary class="details-toggle">音色与关联词</summary>
+            <div class="grid gap-4 md:grid-cols-2">
+              <div><label :for="`voice-${sentence.id}`" class="quiet-note">这句话的朗读音色</label><select :id="`voice-${sentence.id}`" class="ui-input mt-2" :value="sentenceAudioSelection(sentence)" :disabled="audioSettingsLoading || sentence.ui.audioVoiceSaving" @change="changeSentenceAudioVoice(sentence, $event)">
+                <option value="">跟随默认 · {{ globalSentenceAudioIdentity() }}</option>
+                <optgroup v-for="group in audioVoiceGroups" :key="group.key" :label="group.label"><option v-for="voice in group.voices" :key="audioVoiceKey(voice.provider, voice.voice)" :value="audioVoiceKey(voice.provider, voice.voice)" :disabled="!voice.available">{{ audioVoiceOptionLabel(voice) }}</option></optgroup>
+              </select><p class="quiet-note mt-2" :class="sentenceAudioStatusClass(sentence)">{{ sentenceAudioStatusLabel(sentence) }}</p></div>
+              <div><p class="quiet-note mb-2">也出现在其他句子中的词</p><div class="flex flex-wrap gap-2"><span v-for="word in networkWords(sentence)" :key="word.key" class="repeat-badge" :title="networkWordTitle(word)">{{ word.surface || word.key }} · {{ word.linked_sentences }} 句</span><span v-if="!networkWords(sentence).length" class="quiet-note">还没有跨句关联词</span></div></div>
             </div>
-            <p v-if="error" class="mt-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{{ error }}</p>
-          </section>
-
-          <section class="rounded-lg border border-border bg-surface p-4">
-            <div class="flex items-center justify-between gap-3">
-              <h2 class="text-sm font-semibold text-text">新增</h2>
-              <button
-                type="button"
-                class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted transition hover:bg-surface-2 hover:text-text"
-                @click="emit('update:create-open', !createOpen)"
-              >
-                <Plus class="h-3.5 w-3.5" />
-                {{ createOpen ? '收起' : '单句' }}
-              </button>
-            </div>
-            <div v-if="createOpen" class="mt-3 rounded-md border border-border bg-bg p-3">
-              <SentenceEditor
-                :model-value="draft"
-                :saving="saving"
-                :translating="translatingDraft"
-                submit-label="保存"
-                @update:model-value="emit('update:draft', $event)"
-                @translate="translateDraft"
-                @submit="createSentence"
-              />
-            </div>
-
-            <div class="mt-3 border-t border-border pt-3">
-              <div class="mb-2 flex items-center justify-between gap-3">
-                <h3 class="text-xs font-semibold text-muted">批量导入</h3>
-                <div class="flex gap-2">
-                  <button
-                    type="button"
-                    class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted transition hover:bg-surface-2 hover:text-text disabled:opacity-50"
-                    :disabled="bulkLoading"
-                    title="清空"
-                    @click="resetBulkImport"
-                  >
-                    <RotateCcw class="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    class="inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-60"
-                    :disabled="bulkLoading || !bulkSentences.length"
-                    title="导入"
-                    @click="submitBulkImport"
-                  >
-                    <Upload class="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-              <textarea
-                :value="bulkText"
-                class="min-h-32 w-full resize-y rounded-md border border-border bg-bg p-3 text-sm leading-6 outline-none transition focus:border-primary"
-                placeholder="Sentence one&#10;&#10;Sentence two"
-                @input="updateBulkText"
-              />
-              <div v-if="bulkSentences.length" class="mt-2 text-xs text-muted">
-                已识别 <span class="font-semibold tabular-nums text-text">{{ bulkSentences.length }}</span> 条
-              </div>
-              <p v-if="bulkMessage" class="mt-2 text-sm text-primary">{{ bulkMessage }}</p>
-            </div>
-          </section>
-        </aside>
-
-  </div>
+          </details>
+          <div class="library-detail-actions"><button type="button" class="ui-button" @click="toggleEditor(sentence)"><Pencil />{{ sentence.ui.showEditor ? '收起编辑' : '编辑句子' }}</button><button type="button" class="ui-button ghost danger" @click="deleteSentence(sentence)"><Trash2 />删除句子</button></div>
+          <div v-if="sentence.ui.showEditor" class="mt-5"><SentenceEditor :model-value="sentence.ui.editDraft" :saving="sentence.ui.saving" :translating="sentence.ui.translating" submit-label="保存修改" @update:model-value="sentence.ui.editDraft = $event" @translate="translateSentenceDraft(sentence)" @submit="saveSentence(sentence)" /></div>
+        </div>
+        <p v-if="sentence.ui.message" class="status-message mx-5 mb-4" role="status">{{ sentence.ui.message }}</p>
+        <audio v-if="sentence.audio_available && sentence.audio_url" :ref="el => setSentenceAudioRef(sentence.id, el)" class="hidden" :src="resolveSentenceAudioSrc(sentence)" :preload="sentence.ui.cachedAudioUrl ? 'auto' : 'none'" @play="handleSentenceAudioPlay(sentence)" @pause="handleSentenceAudioPause(sentence)" @ended="handleSentenceAudioEnded(sentence)" />
+      </article>
+    </div>
+    <PagePagination :page="page" :page-count="pageCount" :loading="loading" :total="total" label="句库翻页" @change="$event < 0 ? prevPage() : nextPage()" />
+  </section>
 </template>
-
 <script setup>
-import {
-  ChevronLeft,
-  ChevronRight,
-  Pause,
-  Pencil,
-  Play,
-  Plus,
-  RotateCcw,
-  Search,
-  Trash2,
-  Upload
-} from '@lucide/vue'
+import { nextTick, ref } from 'vue'
+import { RouterLink } from 'vue-router'
+import { ChevronDown, Library, Pause, Pencil, Play, Plus, Search, Trash2 } from '@lucide/vue'
 import SentenceEditor from '../SentenceEditor.vue'
-import {
-  focusWordCount,
-  networkWordTitle,
-  networkWords,
-  plainSentenceText,
-  wordEntries,
-  wordEntryTitle
-} from '../sentencePresentation.js'
-
+import SentenceWords from '../components/SentenceWords.vue'
+import PagePagination from '../components/PagePagination.vue'
+import { focusWordCount, networkWordTitle, networkWords, plainSentenceText } from '../sentencePresentation.js'
+const openSentenceId = ref(null)
 const props = defineProps({
   sentences: { type: Array, default: () => [] },
   error: { type: String, default: '' },
@@ -358,22 +69,11 @@ const props = defineProps({
   sort: { type: String, required: true },
   pageSize: { type: Number, required: true },
   pageSizeOptions: { type: Array, default: () => [] },
-  createOpen: { type: Boolean, default: false },
-  draft: { type: Object, required: true },
-  saving: { type: Boolean, default: false },
-  translatingDraft: { type: Boolean, default: false },
-  bulkText: { type: String, default: '' },
-  bulkLoading: { type: Boolean, default: false },
-  bulkSentences: { type: Array, default: () => [] },
-  bulkMessage: { type: String, default: '' },
   audioSettingsLoading: { type: Boolean, default: false },
   audioVoiceGroups: { type: Array, default: () => [] },
   compactDate: { type: Function, required: true },
-  sentenceAudioButtonClass: { type: Function, required: true },
   sentenceAudioStatusClass: { type: Function, required: true },
   sentenceAudioStatusLabel: { type: Function, required: true },
-  sentenceAudioIdentity: { type: Function, required: true },
-  wordAudioIdentity: { type: Function, required: true },
   sentenceAudioSelection: { type: Function, required: true },
   globalSentenceAudioIdentity: { type: Function, required: true },
   audioVoiceKey: { type: Function, required: true },
@@ -394,34 +94,18 @@ const props = defineProps({
   reloadFirstPage: { type: Function, required: true },
   prevPage: { type: Function, required: true },
   nextPage: { type: Function, required: true },
-  translateDraft: { type: Function, required: true },
-  createSentence: { type: Function, required: true },
-  resetBulkImport: { type: Function, required: true },
-  submitBulkImport: { type: Function, required: true }
 })
 
-const emit = defineEmits([
-  'update:search-input',
-  'update:sort',
-  'update:page-size',
-  'update:create-open',
-  'update:draft',
-  'update:bulk-text',
-  'clear-bulk-message'
-])
+const emit = defineEmits(['update:search-input', 'update:sort', 'update:page-size'])
 
 function updateSort(event) {
   emit('update:sort', event.target.value)
-  props.reloadFirstPage()
+  nextTick(() => props.reloadFirstPage())
 }
 
 function updatePageSize(event) {
   emit('update:page-size', Number(event.target.value))
-  props.reloadFirstPage()
+  nextTick(() => props.reloadFirstPage())
 }
 
-function updateBulkText(event) {
-  emit('update:bulk-text', event.target.value)
-  emit('clear-bulk-message')
-}
 </script>

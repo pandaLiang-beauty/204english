@@ -1,48 +1,46 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 export const THEMES = [
-  { value: 'light', label: '浅色主题' },
-  { value: 'dark', label: '深色主题' }
+  { value: 'light', label: '日间' },
+  { value: 'dark', label: '夜间' },
+  { value: 'system', label: '跟随系统' }
 ]
-
-const VALUES = THEMES.map(t => t.value)
 const STORAGE_KEY = 'study-theme'
+const isValid = value => THEMES.some(item => item.value === value)
+const media = typeof window !== 'undefined' ? window.matchMedia?.('(prefers-color-scheme: dark)') : null
+const systemDark = ref(Boolean(media?.matches))
 
-function apply(value) {
-  document.documentElement.setAttribute('data-theme', value)
-  try {
-    localStorage.setItem(STORAGE_KEY, value)
-  } catch {
-    /* localStorage 不可用时忽略 */
-  }
-}
-
-function resolveInitial() {
+function readPreference() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved && VALUES.includes(saved)) return saved
-  } catch {
-    /* ignore */
-  }
-  if (window.matchMedia?.('(prefers-color-scheme: dark)')?.matches) return 'dark'
-  return 'light'
+    if (isValid(saved)) return saved
+  } catch { /* Storage is optional. */ }
+  return 'system'
 }
+const theme = ref(readPreference())
+const resolvedTheme = computed(() => theme.value === 'system' ? (systemDark.value ? 'dark' : 'light') : theme.value)
 
-// 模块级单例：所有组件共享同一主题状态；模块加载时即应用，避免首屏闪烁。
-const theme = ref(resolveInitial())
-apply(theme.value)
+function apply() {
+  if (typeof document === 'undefined') return
+  document.documentElement.dataset.theme = resolvedTheme.value
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme.value === 'dark' ? '#171c19' : '#f5f6f3')
+}
+media?.addEventListener?.('change', event => { systemDark.value = event.matches; apply() })
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', event => {
+    if (event.key !== STORAGE_KEY && event.key !== null) return
+    theme.value = isValid(event.newValue) ? event.newValue : 'system'
+    apply()
+  })
+}
+apply()
 
 export function useTheme() {
   function setTheme(next) {
-    if (!VALUES.includes(next)) return
+    if (!isValid(next)) return
     theme.value = next
-    apply(next)
+    try { localStorage.setItem(STORAGE_KEY, next) } catch { /* Keep this visit usable. */ }
+    apply()
   }
-
-  function cycleTheme() {
-    const idx = VALUES.indexOf(theme.value)
-    setTheme(VALUES[(idx + 1) % VALUES.length])
-  }
-
-  return { theme, themes: THEMES, setTheme, cycleTheme }
+  return { theme, resolvedTheme, themes: THEMES, setTheme }
 }

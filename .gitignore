@@ -17,6 +17,9 @@ frontend/node_modules/
 # Static frontend output is rebuilt by start-dev.sh/deploy.sh; keep its hashed
 # assets local so every release build does not create source-control noise.
 frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/.e2e-dist/
 
 # 字节码
 **/__pycache__/

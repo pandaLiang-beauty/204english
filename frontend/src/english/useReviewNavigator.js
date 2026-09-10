@@ -28,17 +28,11 @@ export function useReviewNavigator(options) {
     else sentenceCardRefs.delete(key)
   }
 
-  function sentenceCardClass(sentence, index) {
-    const active = options.isEnabled() && index === activeSentenceIndex.value
-    return [
-      'overflow-hidden rounded-lg border bg-bg shadow-sm transition',
-      active ? 'border-primary shadow-md ring-1 ring-primary/30' : 'border-border'
-    ]
-  }
-
   function activateSentence(index, { scroll = false } = {}) {
     const maxIndex = Math.max(options.sentences.value.length - 1, 0)
-    activeSentenceIndex.value = Math.max(0, Math.min(Number(index) || 0, maxIndex))
+    const nextIndex = Math.max(0, Math.min(Number(index) || 0, maxIndex))
+    if (nextIndex !== activeSentenceIndex.value) options.stopAllAudio?.()
+    activeSentenceIndex.value = nextIndex
     if (scroll) void scrollActiveSentenceIntoView()
   }
 
@@ -46,7 +40,7 @@ export function useReviewNavigator(options) {
     await nextTick()
     const sentence = activeSentence.value
     const el = sentence ? sentenceCardRefs.get(sentenceInstanceKey(sentence)) : null
-    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+    el?.scrollIntoView?.({ behavior: globalThis.window?.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' })
   }
 
   async function moveActiveSentence(delta) {
@@ -164,7 +158,6 @@ export function useReviewNavigator(options) {
     activeSentenceIndex,
     activeSentence,
     setSentenceCardRef,
-    sentenceCardClass,
     activateSentence,
     moveActiveSentence,
     markActiveReviewedAndNext,

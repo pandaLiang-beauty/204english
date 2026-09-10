@@ -1,58 +1,38 @@
 <template>
-  <main class="flex min-h-screen items-center justify-center bg-bg p-5">
-    <form
-      class="w-full max-w-sm rounded-lg border border-border bg-surface p-7 shadow-sm"
-      @submit.prevent="submit"
-    >
-      <div class="mb-6 flex items-center gap-3">
-        <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-          <Languages class="size-5" />
-        </span>
-        <div>
-          <h1 class="text-lg font-semibold text-text">英语复习</h1>
-          <p class="text-sm text-muted">个人学习记录</p>
-        </div>
+  <main class="login-screen">
+    <section class="login-intro">
+      <div class="brand"><span class="brand-mark"><BookOpen /></span><div class="brand-name">204 英语</div></div>
+      <div class="login-message">
+        <p class="section-label">A LITTLE, EVERY DAY</p>
+        <h1>把每一句，<br />慢慢读明白。</h1>
+        <p>从一篇真题、一句话开始。留下需要理解的词句，在一次次复习中，让英文变得熟悉。</p>
+        <div class="login-steps"><span>01 阅读真题</span><span>02 积累句子</span><span>03 持续复习</span></div>
       </div>
-
-      <label class="block space-y-1.5">
-        <span class="text-sm text-muted">密码</span>
-        <div class="relative">
-          <input
-            v-model="password"
-            :type="showPassword ? 'text' : 'password'"
-            autocomplete="current-password"
-            autofocus
-            class="w-full rounded-md border border-border bg-surface px-3 py-2.5 pr-11 outline-none transition focus:border-primary"
-          />
-          <button
-            type="button"
-            class="absolute right-2 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted transition hover:bg-surface-2 hover:text-text"
-            :aria-label="showPassword ? '隐藏密码' : '显示密码'"
-            :aria-pressed="showPassword"
-            @click="showPassword = !showPassword"
-          >
-            <EyeOff v-if="showPassword" class="size-4" />
-            <Eye v-else class="size-4" />
-          </button>
+      <p class="quiet-note">你的个人英语学习空间</p>
+    </section>
+    <section class="login-form-area">
+      <ThemeSwitcher />
+      <form class="login-form" @submit.prevent="submit">
+        <p class="section-label">WELCOME BACK</p>
+        <h2>继续你的学习</h2>
+        <p class="quiet-note mt-3">输入密码，回到上次的进度。</p>
+        <label for="login-password">登录密码</label>
+        <div class="password-field">
+          <input id="login-password" v-model="password" :type="showPassword ? 'text' : 'password'"
+            autocomplete="current-password" autofocus class="ui-input" placeholder="输入你的密码" :aria-invalid="Boolean(error)" aria-describedby="login-error" />
+          <button type="button" class="ui-icon-button ghost" :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+            :aria-pressed="showPassword" @click="showPassword = !showPassword"><EyeOff v-if="showPassword" /><Eye v-else /></button>
         </div>
-      </label>
-
-      <button
-        type="submit"
-        :disabled="loading || !password"
-        class="mt-5 w-full rounded-md bg-primary py-2.5 font-medium text-primary-foreground transition enabled:hover:opacity-90 disabled:opacity-60"
-      >
-        {{ loading ? '登录中...' : '登录' }}
-      </button>
-
-      <p v-if="error" class="mt-4 text-center text-sm text-danger">{{ error }}</p>
-    </form>
+        <button type="submit" :disabled="loading || !password" class="ui-button primary">{{ loading ? '正在登录…' : '进入学习空间' }}<ArrowRight /></button>
+        <p v-if="error" id="login-error" role="alert" class="status-message error mt-4">{{ error }}</p>
+      </form>
+    </section>
   </main>
 </template>
-
 <script setup>
-import { Eye, EyeOff, Languages } from '@lucide/vue'
+import { BookOpen, Eye, EyeOff, ArrowRight } from '@lucide/vue'
 import { ref } from 'vue'
+import ThemeSwitcher from './ThemeSwitcher.vue'
 import { platformApi } from '../api.js'
 
 const emit = defineEmits(['logged-in'])

@@ -31,8 +31,8 @@ export function useEnglishAudioSettings(callbacks = {}) {
           key,
           provider: voice.provider,
           label: voice.provider === 'edge'
-            ? 'Edge TTS'
-            : `Kokoro · ${voice.accent || ''}${voice.gender || ''}`,
+            ? '在线音色'
+            : `${voice.accent || ''}${voice.gender || ''} · 本地音色`,
           voices: []
         }
         groups.push(group)
@@ -219,7 +219,7 @@ export function useEnglishAudioSettings(callbacks = {}) {
   }
 
   function audioVoiceOptionLabel(voice) {
-    return `${voice.name} · ${voice.voice}`
+    return [voice.name, voice.accent, voice.gender].filter(Boolean).join(' · ')
   }
 
   function voiceProviderFilterButtonClass(provider) {
@@ -232,9 +232,9 @@ export function useEnglishAudioSettings(callbacks = {}) {
   }
 
   function globalSentenceAudioIdentity() {
-    const provider = audioProviderLabel(audioSettings.value.global?.provider)
-    const voice = String(audioSettings.value.global?.voice || '').trim()
-    return voice ? `${provider} · ${voice}` : provider
+    const selection = audioSettings.value.global || {}
+    const voice = audioSettings.value.voices?.find(item => item.provider === selection.provider && item.voice === selection.voice)
+    return voice ? `${voice.name}${voice.accent ? ` · ${voice.accent}` : ''}` : '默认音色'
   }
 
   function sentenceAudioIdentity(sentence) {
@@ -260,10 +260,10 @@ export function useEnglishAudioSettings(callbacks = {}) {
 
   function sentenceAudioStatusLabel(sentence) {
     const status = String(sentence?.audio_status || '').toLowerCase()
-    if (sentence?.audio_available && status === 'ready') return '有音频'
-    if (status === 'pending') return '待生成音频'
-    if (status === 'failed') return '生成失败'
-    return '缺音频'
+    if (sentence?.audio_available && status === 'ready') return '音频已就绪'
+    if (status === 'pending') return '音频准备中，可以先阅读'
+    if (status === 'failed') return '音频生成失败，可到句库调整音色后重试'
+    return '暂时没有音频，可以先阅读'
   }
 
   function sentenceAudioStatusClass(sentence) {

@@ -1,5 +1,6 @@
 <template>
-  <div class="flex h-screen flex-col bg-bg text-text">
+  <div class="study-shell">
+    <a class="skip-link" href="#study-content">跳到学习内容</a>
     <EnglishTopNav
       :view="view"
       :user="user"
@@ -7,7 +8,7 @@
       @logout="requestLogout"
     />
 
-    <main class="min-h-0 flex-1 overflow-hidden">
+    <main id="study-content" class="study-main" tabindex="-1">
       <EnglishFlow
         ref="englishFlow"
         :mode="view"
@@ -31,19 +32,23 @@ const router = useRouter()
 const englishFlow = ref(null)
 const view = ref(viewFromPath(route.path))
 
-async function flushPendingChanges() {
-  const result = await englishFlow.value?.flushPendingChanges?.()
+async function flushPendingChanges(options = {}) {
+  const result = await englishFlow.value?.flushPendingChanges?.(options)
   return result !== false
 }
 
 async function setView(targetView) {
   if (!englishNavigation.viewPaths[targetView] || targetView === view.value) return
-  if (!await flushPendingChanges()) return
   await router.push(pathForView(targetView))
 }
 
+const removeNavigationGuard = router.beforeEach(async to => {
+  if (viewFromPath(to.path) === view.value) return true
+  return flushPendingChanges()
+})
+
 async function requestLogout() {
-  if (!await flushPendingChanges()) return
+  if (!await flushPendingChanges({ leavingApp: true })) return
   emit('logout')
 }
 
@@ -53,16 +58,15 @@ function handleBeforeUnload(event) {
   event.returnValue = ''
 }
 
-watch(() => route.path, async path => {
+watch(() => route.path, path => {
   const nextView = viewFromPath(path)
   if (nextView === view.value) return
-  if (!await flushPendingChanges()) {
-    await router.replace(pathForView(view.value))
-    return
-  }
   view.value = nextView
 })
 
 onMounted(() => window.addEventListener('beforeunload', handleBeforeUnload))
-onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnload))
+onBeforeUnmount(() => {
+  removeNavigationGuard()
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 </script>

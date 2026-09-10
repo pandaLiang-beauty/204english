@@ -12,6 +12,7 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
   const sentenceAudioElements = new Map()
   const recordedSentenceStarts = new WeakSet()
   const audioStatusRefreshTimers = new Set()
+  const preloadRequests = new Set()
   const preloadWindowSize = 36
   // 预加载走「队列 + 固定并发」而不是按固定间隔一次性铺开：铺开时 20 句 × (1 条整句音频
   // + 每个生词读音) 会同时有几十个 fetch 在飞，把 Cloudflare Tunnel 打满，浏览器侧直接
@@ -188,6 +189,8 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
     preloadGeneration.value += 1
     // 换页/换模式时把还没开工的任务丢掉，别让上一页的音频继续抢带宽。
     preloadQueue = []
+    preloadRequests.forEach(controller => controller.abort())
+    preloadRequests.clear()
     if (preloadStartTimer !== null) {
       window.clearTimeout(preloadStartTimer)
       preloadStartTimer = null
@@ -254,12 +257,15 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
     if (!sentence?.audio_url || sentence.ui.cachedAudioUrl || sentence.ui.audioPreloadPromise) {
       return sentence?.ui?.audioPreloadPromise
     }
+    const generation = preloadGeneration.value
+    const source = sentence.audio_url
     sentence.ui.audioPreloadPromise = (async () => {
       try {
-        const blob = await fetchBinaryBlob(sentence.audio_url)
-        if (blob) cacheSentenceAudioBlob(sentence, blob)
+        const blob = await fetchBinaryBlob(source)
+        const current = sentencesRef.value.find(item => sentenceInstanceKey(item) === sentenceInstanceKey(sentence))
+        if (blob && generation === preloadGeneration.value && current?.audio_url === source) cacheSentenceAudioBlob(current, blob)
       } catch (err) {
-        console.warn('预加载句子音频失败', err)
+        if (err?.name !== 'AbortError') console.warn('预加载句子音频失败', err)
       } finally {
         sentence.ui.audioPreloadPromise = null
       }
@@ -268,9 +274,13 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
   }
 
   async function fetchBinaryBlob(url) {
-    const resp = await fetch(url, { cache: 'force-cache' })
-    if (!resp.ok) throw new Error(`获取音频失败: ${resp.status}`)
-    return resp.blob()
+    const controller = new AbortController()
+    preloadRequests.add(controller)
+    try {
+      const resp = await fetch(url, { cache: 'force-cache', signal: controller.signal })
+      if (!resp.ok) throw new Error(`获取音频失败: ${resp.status}`)
+      return await resp.blob()
+    } finally { preloadRequests.delete(controller) }
   }
 
   function cacheSentenceAudioBlob(sentence, blob) {
@@ -288,13 +298,16 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
   async function cacheWordAudioBlob(sentence, word, url) {
     if (!sentence || !word || !url) return null
     if (sentence.ui.wordAudioCache[word]) return sentence.ui.wordAudioCache[word]
+    const generation = preloadGeneration.value
     try {
       const blob = await fetchBinaryBlob(url)
+      const current = sentencesRef.value.find(item => sentenceInstanceKey(item) === sentenceInstanceKey(sentence))
+      if (generation !== preloadGeneration.value || current?.pronunciations?.[word] !== url) return null
       const objectUrl = URL.createObjectURL(blob)
-      sentence.ui.wordAudioCache[word] = objectUrl
+      current.ui.wordAudioCache[word] = objectUrl
       return objectUrl
     } catch (err) {
-      console.warn(`缓存 ${word} 读音失败`, err)
+      if (err?.name !== 'AbortError') console.warn(`缓存 ${word} 读音失败`, err)
       return null
     }
   }
