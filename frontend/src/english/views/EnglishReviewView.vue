@@ -54,15 +54,19 @@
               <p class="review-sentence sentence-reader" lang="en">
                 <template v-for="(token, tokenIndex) in sentenceTokens(sentence.text)" :key="tokenIndex"><button v-if="token.focus" type="button" class="focus-word" :aria-label="`听 ${token.text} 的发音`" @click.stop="activateSentence(index); playWord(sentence, token.text)">{{ token.text }}</button><span v-else class="whitespace-pre-wrap">{{ token.text }}</span></template>
               </p>
-              <div v-if="sentence.ui.showTranslation" :id="`translation-${sentenceInstanceKey(sentence)}`" class="translation-panel">
-                <p class="section-label">对照理解</p>
-                <p class="full-translation">{{ sentence.sentence_translation || segmentPairs(sentence).map(pair => pair.target).filter(Boolean).join('，') }}</p>
-                <details v-if="segmentPairs(sentence).length > 1" class="segment-details">
-                  <summary class="details-toggle">拆开长句，逐段理解</summary>
-                  <div v-for="(pair, pairIndex) in segmentPairs(sentence)" :key="pairIndex" class="segment-pair"><span>{{ String(pairIndex + 1).padStart(2, '0') }}</span><div><p lang="en">{{ pair.source }}</p><p>{{ pair.target }}</p></div></div>
-                </details>
+              <div class="translation-slot">
+                <!-- 隐藏时保留译文高度，切换显示不推移重点词和操作栏。 -->
+                <div :id="`translation-${sentenceInstanceKey(sentence)}`" class="translation-panel"
+                  :class="{ 'is-concealed': !sentence.ui.showTranslation }" :inert="!sentence.ui.showTranslation" :aria-hidden="!sentence.ui.showTranslation">
+                  <p class="section-label">对照理解</p>
+                  <p class="full-translation">{{ sentence.sentence_translation || segmentPairs(sentence).map(pair => pair.target).filter(Boolean).join('，') }}</p>
+                  <details v-if="segmentPairs(sentence).length > 1" class="segment-details">
+                    <summary class="details-toggle">拆开长句，逐段理解</summary>
+                    <div v-for="(pair, pairIndex) in segmentPairs(sentence)" :key="pairIndex" class="segment-pair"><span>{{ String(pairIndex + 1).padStart(2, '0') }}</span><div><p lang="en">{{ pair.source }}</p><p>{{ pair.target }}</p></div></div>
+                  </details>
+                </div>
+                <p v-if="!sentence.ui.showTranslation" class="translation-hint">先试着理解，再点「看译文」。</p>
               </div>
-              <p v-else class="translation-hint">先试着理解，再点「看译文」。</p>
               <section v-if="wordEntries(sentence).length" class="review-vocabulary">
                 <div class="flex items-center justify-between gap-2"><h3 class="section-heading">句中重点词 <span class="word-count">{{ wordEntries(sentence).length }}</span></h3><span class="quiet-note">点击喇叭听发音</span></div>
                 <SentenceWords :sentence="sentence" :play-word="playWord" :shortcuts="index === activeSentenceIndex" />

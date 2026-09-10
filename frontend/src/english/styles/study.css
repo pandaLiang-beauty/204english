@@ -24,8 +24,10 @@
 .large-reading .review-sentence { font-size: 30px; }
 .focus-word { font: inherit; color: var(--primary); font-weight: 500; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--primary) 35%, transparent); text-underline-offset: 5px; text-decoration-thickness: 2px; border-radius: 2px; }
 .focus-word:hover { background: var(--primary-soft); }
-.translation-hint { margin-top: 23px; color: var(--muted); font-size: 12px; }
-.translation-panel { margin-top: 26px; border-left: 3px solid var(--primary); padding: 2px 0 2px 18px; }
+.translation-slot { position: relative; margin-top: 26px; min-height: 72px; }
+.translation-hint { position: absolute; inset: 0; display: flex; align-items: center; border-left: 3px solid var(--border); padding: 2px 0 2px 18px; color: var(--muted); font-size: 12px; }
+.translation-panel { border-left: 3px solid var(--primary); padding: 2px 0 2px 18px; }
+.translation-panel.is-concealed { visibility: hidden; }
 .full-translation { font-size: 15px; line-height: 1.95; margin-top: 10px; }
 .segment-details { margin-top: 10px; }
 .segment-pair { display: flex; gap: 14px; border-top: 1px solid var(--border); padding: 12px 0; font-size: 13px; line-height: 1.8; }
