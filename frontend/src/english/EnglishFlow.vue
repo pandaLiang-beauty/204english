@@ -124,7 +124,6 @@
         :loading="loading"
         :review-round="reviewRound"
         :stats="stats"
-        :move-active-sentence="moveActiveSentence"
         :active-sentence-index="activeSentenceIndex"
         :page="page"
         :page-count="pageCount"
@@ -174,7 +173,7 @@ const isPassages = computed(() => props.mode === 'passages')
 const isReview = computed(() => !isLibrary.value && !isCreate.value && !isStats.value && !isPassages.value)
 const needsAudioSettings = computed(() => isLibrary.value || isStats.value)
 const pageCopy = {
-  review: ['DAILY PRACTICE', '专注这一句', '先读英文，听一遍，再对照理解。'],
+  review: ['DAILY PRACTICE', '句子复习', '连续阅读，随时听音和对照译文。'],
   passages: ['READ IN CONTEXT', '从一篇真题开始', '读文章，标出重点，把值得复习的句子留下来。'],
   library: ['YOUR COLLECTION', '我的句库', '积累下来的每一句，都可以在这里找到。'],
   create: ['ADD TO YOUR COLLECTION', '留下一句值得学习的英文', '手动添加或批量导入，新句子将在下一轮参与复习。'],
@@ -330,7 +329,6 @@ const {
   activeSentenceIndex,
   setSentenceCardRef,
   activateSentence,
-  moveActiveSentence,
   reviewSentenceAndNext,
   handleEnglishKeyboard
 } = reviewNavigator

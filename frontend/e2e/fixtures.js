@@ -5,16 +5,23 @@ const texts = [
   ['What seems like a small step today may have a **profound** effect on the way we think tomorrow.', '今天看似微小的一步，可能对我们明天的思考方式产生深远影响。', 'profound', '深刻的；句中指影响深远'],
   ['Reading gives us the opportunity to **encounter** ideas that we might never discover on our own.', '阅读让我们有机会接触到仅凭自己可能永远无法发现的想法。', 'encounter', '遇到；句中指接触新的想法']
 ]
+const extraWords = [
+  { isolated: '孤立的', recognizing: '认识到；识别' },
+  { environment: '环境', develop: '培养；发展' },
+  { effect: '影响', seems: '似乎' },
+  { opportunity: '机会', discover: '发现' }
+]
 
 function sentence(index) {
   const [text, translation, word, meaning] = texts[index % texts.length]
+  const words = { [word]: meaning, ...extraWords[index % extraWords.length] }
   return {
     id: index + 1, text, sentence_translation: translation,
-    word_translations: { [word]: meaning }, word_tips: {}, word_play_counts: {},
+    word_translations: words, word_tips: {}, word_play_counts: {},
     sentence_segments: [], translation_segments: [], review_count: 3, word_play_total: 2,
     completion_count: 1, audio_available: true, audio_status: 'ready',
     audio_url: `/api/english/sentences/${index + 1}/audio`,
-    pronunciations: { [word]: `/api/test-audio/${word}` },
+    pronunciations: Object.fromEntries(Object.keys(words).map(entry => [entry, `/api/test-audio/${entry}`])),
     audio_uses_global: true, created_at: '2026-09-08T10:00:00+00:00', word_network: { linked_words: [] }
   }
 }

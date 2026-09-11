@@ -1,8 +1,8 @@
 <template>
-  <div class="sentence-words">
+  <div class="sentence-words" :class="{ 'is-compact': compact }">
     <div v-for="(entry, index) in wordEntries(sentence)" :key="entry.word" class="word-row">
       <div class="min-w-0">
-        <div class="word-heading"><span>{{ entry.word }}</span><kbd v-if="shortcuts && index < 9">{{ index + 1 }}</kbd></div>
+        <div class="word-heading"><span>{{ entry.word }}</span><kbd v-if="index < 9 && (shortcuts || compact)" :class="{ 'shortcut-inactive': compact && !shortcuts }">{{ index + 1 }}</kbd></div>
         <p class="word-meaning">{{ entry.meaning || '释义准备中…' }}</p>
         <p v-if="entry.tip" class="word-tip">{{ entry.tip }}</p>
       </div>
@@ -14,5 +14,5 @@
 <script setup>
 import { Volume2 } from '@lucide/vue'
 import { wordEntries } from '../sentencePresentation.js'
-defineProps({ sentence: { type: Object, required: true }, playWord: { type: Function, required: true }, shortcuts: Boolean })
+defineProps({ sentence: { type: Object, required: true }, playWord: { type: Function, required: true }, shortcuts: Boolean, compact: Boolean })
 </script>

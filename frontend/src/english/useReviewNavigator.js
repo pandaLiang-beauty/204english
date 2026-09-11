@@ -40,6 +40,7 @@ export function useReviewNavigator(options) {
     await nextTick()
     const sentence = activeSentence.value
     const el = sentence ? sentenceCardRefs.get(sentenceInstanceKey(sentence)) : null
+    el?.focus?.({ preventScroll: true })
     el?.scrollIntoView?.({ behavior: globalThis.window?.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' })
   }
 
@@ -72,7 +73,8 @@ export function useReviewNavigator(options) {
         if (sentenceInstanceKey(activeSentence.value) === instanceKey) await moveActiveSentence(1)
         return true
       }
-      const updated = await options.markReviewed(sentence)
+      sentence.ui.message = ''
+      const updated = await options.markReviewed(sentence, { silentMessage: true })
       if (!updated) return false
       if (updated.review_round_completed) {
         await options.reloadFirstPage()
