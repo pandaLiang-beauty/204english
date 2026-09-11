@@ -1,40 +1,50 @@
 <template>
-  <section>
-    <div class="segmented-control stats-tabs" role="group" aria-label="学习记录页面">
-      <button type="button" :aria-pressed="statsTab === 'activity'" @click="statsTab = 'activity'">学习记录</button><button type="button" :aria-pressed="statsTab === 'settings'" @click="statsTab = 'settings'">阅读与声音</button>
-    </div>
-    <div v-if="statsTab === 'activity'">
-      <div class="learning-metrics">
-        <div><p>今日完成安排</p><strong>{{ stats.today?.sentence_completions ?? 0 }}<small> 次</small></strong></div>
-        <div><p>今日整句听音</p><strong>{{ stats.today?.sentence_reviews ?? 0 }}<small> 次</small></strong></div>
-        <div><p>今日重点词听音</p><strong>{{ stats.today?.word_reviews ?? 0 }}<small> 次</small></strong></div>
-        <div><p>近 {{ heatmap?.window_days ?? 119 }} 天学习</p><strong>{{ heatmap?.active_days ?? 0 }}<small> 天</small></strong></div>
-      </div>
-      <div class="learning-record-grid">
-        <div class="grid content-start gap-6 min-w-0">
-          <section class="surface-panel">
-            <div class="flex flex-wrap items-center justify-between gap-2"><h2 class="section-heading">每一次听音，都留下记录</h2><span class="quiet-note">近 {{ heatmap?.window_days ?? 119 }} 天</span></div>
-            <p class="quiet-note mt-2">整句与重点词的播放次数</p>
-            <div class="heatmap-scroll"><div class="heatmap-grid" :style="{ gridTemplateColumns: `repeat(${heatmapColumns}, minmax(10px, 1fr))` }"><div v-for="(day, index) in heatmapCells" :key="day?.date || `blank-${index}`" :class="heatCellClass(day, 'large')" :title="heatCellTitle(day)" :aria-label="heatCellTitle(day)" :tabindex="day ? 0 : undefined" /></div></div>
-            <div class="flex items-center justify-between gap-3 quiet-note"><span>累计 {{ heatmap?.total_reviews ?? 0 }} 次听音</span><div class="heatmap-legend"><span>少</span><i v-for="level in [0, 1, 2, 3]" :key="level" :style="{ background: level ? `color-mix(in srgb, var(--primary) ${level * 33}%, var(--surface))` : 'var(--surface-2)' }" /><span>多</span></div></div>
-          </section>
-          <section class="surface-panel">
-            <div class="flex items-center justify-between gap-3"><h2 class="section-heading">在不同句子里反复遇见</h2><span class="quiet-note">跨句关联词</span></div>
-            <p class="quiet-note mt-2">这些词还值得在不同语境里多听、多理解。</p>
-            <div class="linked-word-list"><div v-for="word in weakNetworkWords.slice(0, 8)" :key="word.key" class="linked-word-row"><strong>{{ word.surfaces?.[0] || word.key }}</strong><span>{{ word.linked_sentences }} 个句子</span><span>{{ word.contexts }} 种语境</span></div></div>
-            <p v-if="!weakNetworkWords.length" class="quiet-note mt-5">积累更多句子后，这里会显示共同出现的重点词。</p>
-          </section>
+  <section class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+    <div class="grid gap-4">
+      <div class="rounded-lg border border-border bg-surface p-4">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-sm font-semibold text-text">复习热力</h2>
+          <span class="text-xs text-muted">近 {{ heatmap?.window_days ?? 119 }} 天 {{ heatmap?.total_reviews ?? 0 }} 次</span>
         </div>
-        <aside class="collection-summary surface-panel"><BookOpen /><h2 class="section-heading">已经留下的积累</h2><p class="collection-total">{{ stats.active ?? 0 }}<span> 句英文</span></p><dl><div><dt>可听整句</dt><dd>{{ stats.with_audio ?? 0 }} 句</dd></div><div><dt>累计整句播放</dt><dd>{{ stats.sentence_reviews ?? 0 }} 次</dd></div><div><dt>累计重点词播放</dt><dd>{{ stats.word_reviews ?? 0 }} 次</dd></div><div><dt>最长连续学习</dt><dd>{{ heatmap?.longest_streak ?? 0 }} 天</dd></div></dl><p class="quiet-note mt-5">累计播放保留了旧系统的 {{ legacyReviewTotal }} 次历史记录。</p></aside>
+        <div class="mt-4 overflow-x-auto pb-1">
+          <div
+            class="grid grid-flow-col grid-rows-7 gap-1"
+            :style="{ gridTemplateColumns: `repeat(${heatmapColumns}, 0.85rem)` }"
+          >
+            <div
+              v-for="(day, index) in heatmapCells"
+              :key="day?.date || `blank-${index}`"
+              :class="heatCellClass(day, 'large')"
+              :title="heatCellTitle(day)"
+            />
+          </div>
+        </div>
       </div>
-    </div>
-    <div v-else class="preferences-grid">
-      <section class="surface-panel reading-preferences"><div><h2 class="section-heading">让阅读更适合此刻</h2><p class="quiet-note mt-2">外观和字号会在这台设备上记住。</p></div><div><p class="quiet-note mb-2">外观</p><ThemeSwitcher /></div><div><p class="quiet-note mb-2">阅读字号</p><div class="segmented-control" role="group" aria-label="阅读字号"><button type="button" :aria-pressed="readingSize === 'normal'" @click="setReadingSize('normal')">标准字号</button><button type="button" :aria-pressed="readingSize === 'large'" @click="setReadingSize('large')">大字阅读</button></div></div></section>
-      <div class="surface-panel audio-preferences">
+
+      <div class="grid gap-3 md:grid-cols-4">
+        <div class="rounded-lg border border-border bg-surface p-4">
+          <div class="text-xs text-muted">今日整句</div>
+          <div class="mt-2 text-2xl font-semibold tabular-nums">{{ stats.today?.sentence_reviews ?? 0 }}</div>
+        </div>
+        <div class="rounded-lg border border-border bg-surface p-4">
+          <div class="text-xs text-muted">今日单词</div>
+          <div class="mt-2 text-2xl font-semibold tabular-nums">{{ stats.today?.word_reviews ?? 0 }}</div>
+        </div>
+        <div class="rounded-lg border border-border bg-surface p-4">
+          <div class="text-xs text-muted">今日标词</div>
+          <div class="mt-2 text-2xl font-semibold tabular-nums">{{ stats.today?.focus_toggles ?? 0 }}</div>
+        </div>
+        <div class="rounded-lg border border-border bg-surface p-4">
+          <div class="text-xs text-muted">旧系统累计</div>
+          <div class="mt-2 text-2xl font-semibold tabular-nums">{{ legacyReviewTotal }}</div>
+        </div>
+      </div>
+
+      <div class="rounded-lg border border-border bg-surface p-4">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 class="text-sm font-semibold text-text">选择听起来舒服的声音</h2>
-            <div class="mt-1 text-xs text-muted">当前默认：{{ globalSentenceAudioIdentity() }}</div>
+            <h2 class="text-sm font-semibold text-text">整句音色</h2>
+            <div class="mt-1 text-xs text-muted">全局 {{ globalSentenceAudioIdentity() }}</div>
           </div>
           <div class="flex flex-wrap items-center justify-end gap-2">
             <select
@@ -75,13 +85,13 @@
               @click="emit('apply-global-audio-settings')"
             >
               <RefreshCw :class="['h-4 w-4', audioSettingsApplying ? 'animate-spin' : '']" />
-              更新已有句子的音色
+              应用到已有句子
             </button>
           </div>
         </div>
 
         <div class="mt-3 rounded-md bg-bg px-3 py-2 text-sm leading-6 text-text">
-          {{ audioSettings.sample_text || '选择下面的音色试听。' }}
+          {{ audioSettings.sample_text || 'relatively' }}
         </div>
 
         <div class="mt-3 flex items-center justify-between gap-3">
@@ -92,7 +102,7 @@
               :aria-pressed="voiceProviderFilter === 'kokoro'"
               @click="emit('update:voice-provider-filter', 'kokoro')"
             >
-              本地音色 <span class="tabular-nums">{{ kokoroVoiceCount }}</span>
+              Kokoro <span class="tabular-nums">{{ kokoroVoiceCount }}</span>
             </button>
             <button
               type="button"
@@ -100,7 +110,7 @@
               :aria-pressed="voiceProviderFilter === 'edge'"
               @click="emit('update:voice-provider-filter', 'edge')"
             >
-              在线音色 <span class="tabular-nums">{{ edgeVoiceCount }}</span>
+              Edge TTS <span class="tabular-nums">{{ edgeVoiceCount }}</span>
             </button>
           </div>
           <span class="text-xs tabular-nums text-muted">共 {{ kokoroVoiceCount + edgeVoiceCount }} 个英语音色</span>
@@ -140,7 +150,7 @@
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span class="font-medium text-text">{{ voice.name }}</span>
-
+                    <span class="text-xs text-muted">{{ voice.voice }}</span>
                     <span
                       v-if="selectedGlobalVoice === audioVoiceKey(voice.provider, voice.voice)"
                       class="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary"
@@ -152,7 +162,6 @@
                     {{ voice.description }}
                   </div>
                 </div>
-                <button type="button" class="ui-button small" :disabled="!voice.available || selectedGlobalVoice === audioVoiceKey(voice.provider, voice.voice)" @click="emit('update:selected-global-voice', audioVoiceKey(voice.provider, voice.voice))">{{ selectedGlobalVoice === audioVoiceKey(voice.provider, voice.voice) ? '已选择' : '选择' }}</button>
               </div>
             </div>
           </section>
@@ -162,16 +171,74 @@
         <div v-if="audioSettingsError" class="mt-3 text-xs text-danger">{{ audioSettingsError }}</div>
       </div>
     </div>
+
+    <aside class="grid content-start gap-3 xl:sticky xl:top-4">
+      <div class="rounded-lg border border-border bg-surface p-4">
+        <h2 class="text-sm font-semibold text-text">语料状态</h2>
+        <dl class="mt-3 grid gap-2 text-sm">
+          <div class="flex items-center justify-between gap-3">
+            <dt class="text-muted">全部句子</dt>
+            <dd class="font-semibold tabular-nums">{{ stats.total ?? '-' }}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <dt class="text-muted">有效句子</dt>
+            <dd class="font-semibold tabular-nums">{{ stats.active ?? '-' }}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <dt class="text-muted">有音频</dt>
+            <dd class="font-semibold tabular-nums">{{ stats.with_audio ?? '-' }}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <dt class="text-muted">活跃天数</dt>
+            <dd class="font-semibold tabular-nums">{{ heatmap?.active_days ?? 0 }}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <dt class="text-muted">事件记录</dt>
+            <dd class="font-semibold tabular-nums">{{ heatmap?.tracked_total_reviews ?? 0 }}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <dt class="text-muted">旧系统累计</dt>
+            <dd class="font-semibold tabular-nums">{{ legacyReviewTotal }}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <dt class="text-muted">最长连续</dt>
+            <dd class="font-semibold tabular-nums">{{ heatmap?.longest_streak ?? 0 }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="rounded-lg border border-border bg-surface p-4">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-sm font-semibold text-text">关联词</h2>
+          <span class="text-xs text-muted tabular-nums">{{ stats.word_network?.cross_sentence_words ?? 0 }}</span>
+        </div>
+        <div v-if="weakNetworkWords.length" class="mt-3 grid gap-2">
+          <div
+            v-for="word in weakNetworkWords"
+            :key="word.key"
+            class="rounded-md border border-border bg-bg px-3 py-2"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0 truncate text-sm font-semibold text-text">{{ word.surfaces?.[0] || word.key }}</div>
+              <div class="shrink-0 text-xs tabular-nums text-muted">{{ Math.round((word.weakness || 0) * 100) }}%</div>
+            </div>
+            <div class="mt-1 flex flex-wrap gap-1.5 text-[11px] text-muted">
+              <span class="rounded bg-surface-2 px-1.5 py-0.5">{{ word.linked_sentences }} 句</span>
+              <span class="rounded bg-surface-2 px-1.5 py-0.5">{{ word.contexts }} 义项</span>
+              <span class="rounded bg-surface-2 px-1.5 py-0.5">{{ word.played_edges }} 已听</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="mt-3 text-sm text-muted">暂无跨句关联词</div>
+      </div>
+    </aside>
   </section>
 </template>
+
 <script setup>
-import { ref } from 'vue'
-import { BookOpen, Check, Pause, Play, RefreshCw } from '@lucide/vue'
-import ThemeSwitcher from '../../platform/components/ThemeSwitcher.vue'
-import { useReadingPreferences } from '../useReadingPreferences.js'
-const statsTab = ref('activity')
-const { readingSize, setReadingSize } = useReadingPreferences()
-const props = defineProps({
+import { Check, Pause, Play, RefreshCw } from '@lucide/vue'
+
+defineProps({
   stats: { type: Object, required: true },
   heatmap: { type: Object, default: null },
   heatmapCells: { type: Array, default: () => [] },

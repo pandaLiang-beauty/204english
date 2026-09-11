@@ -1,8 +1,8 @@
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, ref } from 'vue'
 import { englishApi } from './api.js'
-import { emptyPassageForm, passageToForm, payloadFromPassageForm, passageTitle, passageStatusLabel, examTypeLabel, passageTypeLabel, passageActionLabel } from './passagePresentation.js'
 import {
   editableElementToMarkdown,
+  markedWordCount,
   passageCandidates,
   passageTextToHtml
 } from './passageMarkdown.js'
@@ -15,7 +15,6 @@ export function usePassageEditor(callbacks = {}) {
   const passageTotal = ref(0)
   const passageLoading = ref(false)
   const passageSaving = ref(false)
-  const passageAutosaving = ref(false)
   const passageSyncing = ref(false)
   const passageCompleting = ref(false)
   const passageMessage = ref('')
@@ -74,6 +73,79 @@ export function usePassageEditor(callbacks = {}) {
   function handlePassageFormInput(options = {}) {
     if (options.bodyText) refreshPassageAnnotator(passageForm.value.bodyText)
     markPassageDirty()
+  }
+
+  function emptyPassageForm() {
+    return {
+      id: null,
+      title: '',
+      sourceLabel: '',
+      sourceUrl: '',
+      year: '',
+      examType: '',
+      passageType: 'custom',
+      bodyText: '',
+      status: 'new'
+    }
+  }
+
+  function passageToForm(passage) {
+    return {
+      id: passage?.id || null,
+      title: passage?.title || '',
+      sourceLabel: passage?.source_label || '',
+      sourceUrl: passage?.source_url || '',
+      year: passage?.year ? String(passage.year) : '',
+      examType: passage?.exam_type || '',
+      passageType: passage?.passage_type || 'custom',
+      bodyText: passage?.body_text || '',
+      status: passage?.status || 'new'
+    }
+  }
+
+  function payloadFromPassageForm(value) {
+    const year = String(value.year || '').trim()
+    return {
+      title: String(value.title || '').trim(),
+      source_label: String(value.sourceLabel || '').trim(),
+      source_url: String(value.sourceUrl || '').trim(),
+      year: year ? Number(year) : null,
+      exam_type: String(value.examType || '').trim(),
+      passage_type: String(value.passageType || '').trim() || 'custom',
+      body_text: String(value.bodyText || '').trim(),
+      status: value.status || 'new'
+    }
+  }
+
+  function passageTitle(passage) {
+    return passage?.title || passage?.source_label || `阅读文章 #${passage?.id || '-'}`
+  }
+
+  function passageStatusLabel(status) {
+    if (status === 'done') return '已完成'
+    if (status === 'reading') return '阅读中'
+    return '未开始'
+  }
+
+  function examTypeLabel(value) {
+    if (value === 'english1') return '英语一'
+    if (value === 'english2') return '英语二'
+    return value || ''
+  }
+
+  function passageTypeLabel(value) {
+    return {
+      reading_a: '阅读理解',
+      cloze: '完形填空',
+      reading_b: '新题型',
+      translation: '翻译材料',
+      custom: '自建文章'
+    }[value] || '自建文章'
+  }
+
+  function passageActionLabel(passage) {
+    if (passage?.status === 'done') return '查看标注'
+    return markedWordCount(passage) ? '继续标注' : '开始标注'
   }
 
   function refreshPassageAnnotator(text) {
@@ -158,7 +230,6 @@ export function usePassageEditor(callbacks = {}) {
       status: activePassage.value.status === 'done' ? 'done' : 'reading'
     })
     const expectedPayload = JSON.stringify(payload)
-    passageAutosaving.value = true
     passageAutosavePromise = (async () => {
       let succeeded = false
       try {
@@ -196,7 +267,6 @@ export function usePassageEditor(callbacks = {}) {
         return false
       } finally {
         passageAutosavePromise = null
-        passageAutosaving.value = false
         if (succeeded && passageDirty.value) schedulePassageAutosave()
       }
     })()
@@ -207,12 +277,7 @@ export function usePassageEditor(callbacks = {}) {
     clearPassageAutosaveTimer()
     if (passageAutosavePromise) await passageAutosavePromise
     if (!passageDirty.value) return true
-    if (activePassage.value) {
-      while (passageDirty.value) {
-        if (!await persistPassageAutosave()) return false
-      }
-      return true
-    }
+    if (activePassage.value) return persistPassageAutosave()
     passageError.value = '新文章尚未保存'
     if (typeof window !== 'undefined' && window.confirm('新文章尚未保存，确定放弃这些内容吗？')) {
       passageDirty.value = false
@@ -302,7 +367,6 @@ export function usePassageEditor(callbacks = {}) {
 
   async function selectPassage(passage, options = {}) {
     if (!passage) return false
-    if (!options.skipAutosave && Number(activePassage.value?.id) === Number(passage.id) && passageDirty.value) return true
     if (!options.skipAutosave && Number(activePassage.value?.id) !== Number(passage.id)) {
       if (!await flushPassageAutosave()) return false
     }
@@ -400,25 +464,6 @@ export function usePassageEditor(callbacks = {}) {
     }
   }
 
-  function actionSnapshot() {
-    return { id: Number(activePassage.value.id), revision: passageEditRevision, payload: JSON.stringify(payloadFromPassageForm(passageForm.value)) }
-  }
-
-  function mergeActionResult(updated, snapshot, status) {
-    if (!updated) return false
-    updatePassageRecords(updated, { preserveActive: true })
-    if (Number(activePassage.value?.id) !== snapshot.id) return false
-    const unchanged = passageEditRevision === snapshot.revision
-      && JSON.stringify(payloadFromPassageForm(passageForm.value)) === snapshot.payload
-    if (unchanged) replacePassage(updated)
-    else {
-      if (status) passageForm.value = { ...passageForm.value, status }
-      activePassage.value = { ...updated, ...payloadFromPassageForm(passageForm.value), id: snapshot.id }
-      markPassageDirty()
-    }
-    return unchanged
-  }
-
   async function syncSelectedCandidates() {
     if (!activePassage.value || passageSyncing.value || !selectedCandidateIndexes.value.length) return
     const selectedIndexes = [...selectedCandidateIndexes.value]
@@ -431,18 +476,21 @@ export function usePassageEditor(callbacks = {}) {
     passageMessage.value = ''
     passageError.value = ''
     passageSyncMessage.value = ''
-    const snapshot = actionSnapshot()
     try {
-      const result = await englishApi.syncPassageSentences(snapshot.id, { candidate_indexes: [...selectedCandidateIndexes.value] })
-      const unchanged = result?.passage ? mergeActionResult(result.passage, snapshot) : passageEditRevision === snapshot.revision
-      if (Number(activePassage.value?.id) !== snapshot.id) return
-      passageMessage.value = `已加入句库 ${result?.inserted || 0} 句，已有 ${result?.reused || 0} 句。新句子将在下一轮复习。`
+      const result = await englishApi.syncPassageSentences(activePassage.value.id, {
+        candidate_indexes: selectedCandidateIndexes.value
+      })
+      if (result?.passage) replacePassage(result.passage)
+      passageMessage.value = `已同步 ${result?.inserted || 0} 句，复用 ${result?.reused || 0} 句`
+      // 同步成功就把勾选清掉。这一步是「标注句子」那张卡片里唯一看得见的反馈——
+      // passageMessage 和标题栏的「已同步 N 句」都渲染在 main 列顶端，而卡片在页面
+      // 底部，点完按钮它们全在视口外，勾还挂着、按钮还写着「同步 1 句」，看起来就像
+      // 什么都没发生（实际上句子已经入库了）。
       passageSyncMessage.value = passageMessage.value
-      if (unchanged) selectedCandidateIndexes.value = []
+      selectedCandidateIndexes.value = []
       await callbacks.refreshActivity?.()
     } catch (err) {
-      if (Number(activePassage.value?.id) !== snapshot.id) return
-      passageError.value = err?.message || '加入句库失败，请重试'
+      passageError.value = err?.message || '同步候选句失败'
       passageSyncMessage.value = passageError.value
     } finally {
       passageSyncing.value = false
@@ -455,13 +503,13 @@ export function usePassageEditor(callbacks = {}) {
     passageCompleting.value = true
     passageMessage.value = ''
     passageError.value = ''
-    const snapshot = actionSnapshot()
     try {
-      const updated = await englishApi.completePassage(snapshot.id)
-      mergeActionResult(updated, snapshot, 'done')
-      if (Number(activePassage.value?.id) === snapshot.id) passageMessage.value = '已记录，这篇读完了。'
+      const updated = await englishApi.completePassage(activePassage.value.id)
+      replacePassage(updated)
+      passageMessage.value = '已标记完成'
+      await loadPassages({ activeId: updated.id })
     } catch (err) {
-      if (Number(activePassage.value?.id) === snapshot.id) passageError.value = err?.message || '记录失败，请重试'
+      passageError.value = err?.message || '标记完成失败'
     } finally {
       passageCompleting.value = false
     }
@@ -498,7 +546,6 @@ export function usePassageEditor(callbacks = {}) {
     passageTotal,
     passageLoading,
     passageSaving,
-    passageAutosaving,
     passageSyncing,
     passageCompleting,
     passageMessage,

@@ -1,0 +1,93 @@
+/* Appearance only. Keep the original containers, document order and controls. */
+.english-shell {
+  height: 100dvh;
+}
+
+.english-top-nav {
+  background: var(--surface);
+  box-shadow: var(--paper-shadow);
+}
+
+.english-top-nav nav button.font-medium {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+  box-shadow: none;
+}
+
+.theme-switcher {
+  background: var(--surface-2);
+}
+
+.theme-switcher button {
+  width: 32px;
+  height: 32px;
+}
+
+.english-workspace {
+  scrollbar-gutter: stable;
+}
+
+.english-review-card {
+  background: var(--surface);
+  box-shadow: var(--paper-shadow);
+  transition-property: border-color, background-color, box-shadow;
+}
+
+.english-review-card.border-primary {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent), var(--paper-shadow);
+}
+
+.review-card-heading,
+.review-card-support {
+  background: color-mix(in srgb, var(--surface-2) 65%, var(--surface));
+}
+
+.review-card-support > section {
+  min-width: 0;
+  background: var(--surface);
+  border-style: solid;
+}
+
+.english-review-card .sentence-reader,
+.review-card-support {
+  overflow-wrap: anywhere;
+}
+
+.english-shell button,
+#app form button {
+  cursor: pointer;
+}
+
+.english-shell button:disabled,
+#app form button:disabled {
+  cursor: not-allowed;
+}
+
+:where(button, a, input, textarea, select, [contenteditable="true"]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+::selection {
+  color: var(--text);
+  background: color-mix(in srgb, var(--primary) 23%, var(--surface));
+}
+
+@media (max-width: 640px) {
+  .english-workspace {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .review-card-heading button {
+    min-height: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

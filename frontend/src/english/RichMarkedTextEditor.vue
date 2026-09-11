@@ -1,27 +1,23 @@
 <template>
   <div class="grid gap-2">
-    <div class="flex items-center justify-between gap-3">
-      <span class="quiet-note">选中重点词，再点「标记重点」</span>
+    <div class="flex justify-end">
       <button
         type="button"
         :disabled="disabled"
-        title="标记或取消重点 · Ctrl / ⌘ + B"
-        class="ui-button small"
+        title="加粗选中内容"
+        class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted transition hover:bg-surface-2 hover:text-text disabled:opacity-50"
         @mousedown.prevent="toggleBold"
-        @click="event => event.detail === 0 && toggleBold()"
       >
-          <Bold class="h-4 w-4" />
-          标记重点
+        <Bold class="h-4 w-4" />
       </button>
     </div>
     <div
       ref="editorEl"
-      class="marked-text-editor sentence-editor-text ui-input w-full resize-y overflow-auto p-4 text-base leading-8"
+      class="marked-text-editor sentence-editor-text w-full resize-y overflow-auto rounded-md border border-border bg-surface p-3 text-sm leading-6 outline-none transition focus:border-primary"
       :class="[minHeightClass, disabled ? 'opacity-60' : '']"
       :contenteditable="disabled ? 'false' : 'true'"
       role="textbox"
       aria-multiline="true"
-      :aria-label="placeholder || '英文句子'"
       spellcheck="false"
       :data-placeholder="placeholder"
       @input="emitMarkdown"

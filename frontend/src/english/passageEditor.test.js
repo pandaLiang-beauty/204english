@@ -280,7 +280,7 @@ test('同步成功后勾选被清空，并在「标注句子」卡片就地回�
     await editor.syncSelectedCandidates()
 
     assert.deepEqual(editor.selectedCandidateIndexes.value, [], '勾选必须清空，否则按钮仍写着「同步 1 句」')
-    assert.match(editor.passageSyncMessage.value, /已加入句库 1 句/, '卡片内必须就地回显，顶端那条用户看不见')
+    assert.match(editor.passageSyncMessage.value, /已同步 1 句/, '卡片内必须就地回显，顶端那条用户看不见')
   } finally {
     englishApi.syncPassageSentences = originalSync
   }

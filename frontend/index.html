@@ -2,17 +2,15 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#f5f6f3" />
-    <meta name="description" content="204 英语：阅读真题、积累句子、持续复习。" />
-    <title>204 英语 · 个人学习空间</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>英语复习</title>
     <script>
       (() => {
-        let theme = 'system'
-        try { theme = localStorage.getItem('study-theme') || 'system' } catch {}
-        const dark = theme === 'dark' || (!['light', 'dark'].includes(theme) && window.matchMedia?.('(prefers-color-scheme: dark)').matches)
-        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-        document.querySelector('meta[name="theme-color"]').content = dark ? '#171c19' : '#f5f6f3'
+        let saved
+        try { saved = localStorage.getItem('study-theme') } catch {}
+        document.documentElement.dataset.theme = ['light', 'dark'].includes(saved)
+          ? saved
+          : window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
       })()
     </script>
   </head>

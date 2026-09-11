@@ -1,13 +1,6 @@
 @import "tailwindcss";
-@import "./styles/shell.css";
-@import "./english/styles/study.css";
+@import "./english/styles/appearance.css";
 
-@font-face {
-  font-family: "Study Serif";
-  src: url("/fonts/anthropic-serif/AnthropicSerif-Text-Regular-Static.otf") format("opentype");
-  font-weight: 400;
-  font-display: swap;
-}
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -17,90 +10,84 @@
   --color-muted: var(--muted);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-contrast: var(--primary-foreground);
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-serif: "Study Serif", Georgia, "Songti SC", "SimSun", serif;
+  --font-sans: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-serif: "Times New Roman", Times, "SimSun", "Songti SC", "STSong", "宋体", serif;
+  --radius: 0.5rem;
 }
-:root, :root[data-theme="light"] {
+
+/* 保留原版的暖色纸面与朱红主色，只调整明暗和对比。 */
+:root,
+:root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f5f6f3; --surface: #ffffff; --surface-2: #eef1ec; --border: #e0e5de;
-  --text: #252e29; --muted: #68736b; --primary: #355e4e; --primary-foreground: #ffffff;
-  --primary-soft: #e7eee7; --success: #3e694f; --success-soft: #eaf2e8;
-  --warning: #8c632b; --warning-soft: #f8efd9; --danger: #ae4540; --danger-soft: #f9eae8;
-  --shadow: 0 4px 24px #263c2b04;
+  --bg: #f2f0eb;
+  --surface: #fffefa;
+  --surface-2: #f5f2ec;
+  --border: #ded9cf;
+  --text: #29251f;
+  --muted: #71695e;
+  --primary: #b04a2f;
+  --primary-foreground: #ffffff;
+  --success: #2f7d47;
+  --success-soft: #e3f1e6;
+  --warning: #b8791d;
+  --warning-soft: #f6ecd7;
+  --danger: #c23b3b;
+  --danger-soft: #f7e3e2;
+  --paper-shadow: 0 1px 3px rgb(51 41 27 / 4%);
 }
+
+/* 夜间降低底色亮度，正文、次要文字和强调色分别保持可读对比。 */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #171c19; --surface: #202722; --surface-2: #29322b; --border: #39453b;
-  --text: #e7ede6; --muted: #a5b1a6; --primary: #adceb7; --primary-foreground: #1b3023;
-  --primary-soft: #303e32; --success: #b0cfa8; --success-soft: #2b3b2a;
-  --warning: #dfbd7d; --warning-soft: #3b3221; --danger: #eda69e; --danger-soft: #432c29;
-  --shadow: 0 4px 24px #0000000a;
+  --bg: #191917;
+  --surface: #23231f;
+  --surface-2: #2c2c26;
+  --border: #46463c;
+  --text: #eeeae0;
+  --muted: #b9b3a5;
+  --primary: #e49475;
+  --primary-foreground: #211a16;
+  --success: #7cba8c;
+  --success-soft: #24301f;
+  --warning: #dcae63;
+  --warning-soft: #342a18;
+  --danger: #e08b83;
+  --danger-soft: #35211f;
+  --paper-shadow: 0 1px 3px rgb(0 0 0 / 12%);
 }
+
 @layer base {
-  html, body, #app { min-height: 100%; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 14px; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-  * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
-  button, input, select, textarea { font: inherit; }
-  button, summary { cursor: pointer; }
-  button:disabled { cursor: not-allowed; opacity: .45; }
-  :focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
-  ::selection { background: var(--primary-soft); color: var(--text); }
-  input, select, textarea { color: var(--text); }
-  input::placeholder, textarea::placeholder { color: var(--muted); opacity: .85; }
-  button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
-  h1, h2, h3, p { overflow-wrap: break-word; }
-  [hidden] { display: none !important; }
-}
-.ui-button, .ui-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; flex-shrink: 0; padding: 9px 15px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 500; line-height: 1.4; transition: background .16s, border-color .16s; }
-.ui-button:hover:not(:disabled), .ui-icon-button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--muted); }
-.ui-button svg, .ui-icon-button svg { width: 16px; height: 16px; flex-shrink: 0; }
-.ui-icon-button { width: 40px; padding: 0; }
-.ui-button.primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
-.ui-button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--text)); }
-.ui-button.ghost, .ui-icon-button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
-.ui-button.danger { color: var(--danger); }
-.ui-button.small { min-height: 34px; padding: 7px 11px; font-size: 12px; }
-.ui-input { width: 100%; min-width: 0; min-height: 42px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--surface); outline: none; }
-.ui-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
-.surface-panel { min-width: 0; padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
-.section-label { font-size: 11px; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-.section-heading { font-size: 15px; font-weight: 600; color: var(--text); }
-.muted { color: var(--muted); }
-.quiet-note { font-size: 12px; line-height: 1.8; color: var(--muted); }
-.status-message { padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.7; color: var(--primary); background: var(--primary-soft); }
-.status-message.error { background: var(--danger-soft); color: var(--danger); }
-.empty-state { text-align: center; padding: 64px 24px; border: 1px dashed var(--border); border-radius: 12px; background: var(--surface); }
-.empty-state h2 { margin: 16px 0 8px; font-size: 18px; font-weight: 600; }
-.empty-state p { color: var(--muted); line-height: 1.9; }
-.empty-state svg { width: 32px; height: 32px; margin: 0 auto; color: var(--primary); }
-.empty-state .ui-button { margin-top: 20px; }
-.segmented-control { display: inline-flex; gap: 3px; padding: 3px; background: var(--surface-2); border-radius: 8px; }
-.segmented-control button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 6px 11px; border-radius: 6px; color: var(--muted); font-size: 12px; }
-.segmented-control button[aria-pressed="true"] { color: var(--text); background: var(--surface); box-shadow: 0 1px 3px #0000000d; }
-.segmented-control svg { width: 15px; height: 15px; }
-.sentence-reader { font-family: var(--font-serif); }
-.page-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-kbd { border: 1px solid var(--border); padding: 1px 5px; border-radius: 4px; font-family: inherit; font-size: 10px; color: var(--muted); }
-.details-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; color: var(--muted); font-size: 13px; list-style: none; }
-.details-toggle::-webkit-details-marker { display: none; }
-.details-toggle::after { content: '+'; font-size: 18px; font-weight: 400; }
-details[open] > .details-toggle::after { content: '−'; }
-.loading-line { height: 18px; border-radius: 4px; background: var(--surface-2); animation: breathe 1.5s ease-in-out infinite; }
-@keyframes breathe { 50% { opacity: .45; } }
-@media (max-width: 640px) {
-  .surface-panel { padding: 18px; }
-  .ui-button, .ui-icon-button { min-height: 44px; }
-  .ui-icon-button { width: 44px; }
-  .ui-input { font-size: 16px; }
-  .page-pagination { gap: 8px; }
-  .page-pagination .ui-button { padding-inline: 10px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; scroll-behavior: auto !important; transition: none !important; }
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    overflow: hidden;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  /* 沿用原版阅读字体，界面文字继续使用无衬线字体。 */
+  .sentence-reader {
+    font-family: var(--font-serif);
+  }
 }

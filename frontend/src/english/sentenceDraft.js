@@ -96,11 +96,11 @@ export function applyWordTranslationsToDraft(target, result) {
   }
 }
 
-export function stringifyMap(value) {
+function stringifyMap(value) {
   return Object.entries(value || {}).map(([key, text]) => `${key}=${text || ''}`).join('\n')
 }
 
-export function parseMap(text) {
+function parseMap(text) {
   const output = {}
   String(text || '').split(/\r?\n/).forEach(line => {
     const trimmed = line.trim()

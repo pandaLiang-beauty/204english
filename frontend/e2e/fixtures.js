@@ -18,7 +18,7 @@ function sentence(index) {
   return {
     id: index + 1, text, sentence_translation: translation,
     word_translations: words, word_tips: {}, word_play_counts: {},
-    sentence_segments: [], translation_segments: [], review_count: 3, word_play_total: 2,
+    sentence_segments: [text.replaceAll('**', '')], translation_segments: [translation], review_count: 3, word_play_total: 2,
     completion_count: 1, audio_available: true, audio_status: 'ready',
     audio_url: `/api/english/sentences/${index + 1}/audio`,
     pronunciations: Object.fromEntries(Object.keys(words).map(entry => [entry, `/api/test-audio/${entry}`])),

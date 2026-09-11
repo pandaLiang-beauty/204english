@@ -1,46 +1,48 @@
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 
 export const THEMES = [
-  { value: 'light', label: '日间' },
-  { value: 'dark', label: '夜间' },
-  { value: 'system', label: '跟随系统' }
+  { value: 'light', label: '浅色主题' },
+  { value: 'dark', label: '深色主题' }
 ]
-const STORAGE_KEY = 'study-theme'
-const isValid = value => THEMES.some(item => item.value === value)
-const media = typeof window !== 'undefined' ? window.matchMedia?.('(prefers-color-scheme: dark)') : null
-const systemDark = ref(Boolean(media?.matches))
 
-function readPreference() {
+const VALUES = THEMES.map(t => t.value)
+const STORAGE_KEY = 'study-theme'
+
+function apply(value) {
+  document.documentElement.setAttribute('data-theme', value)
+  try {
+    localStorage.setItem(STORAGE_KEY, value)
+  } catch {
+    /* localStorage 不可用时忽略 */
+  }
+}
+
+function resolveInitial() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
-    if (isValid(saved)) return saved
-  } catch { /* Storage is optional. */ }
-  return 'system'
+    if (saved && VALUES.includes(saved)) return saved
+  } catch {
+    /* ignore */
+  }
+  if (window.matchMedia?.('(prefers-color-scheme: dark)')?.matches) return 'dark'
+  return 'light'
 }
-const theme = ref(readPreference())
-const resolvedTheme = computed(() => theme.value === 'system' ? (systemDark.value ? 'dark' : 'light') : theme.value)
 
-function apply() {
-  if (typeof document === 'undefined') return
-  document.documentElement.dataset.theme = resolvedTheme.value
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme.value === 'dark' ? '#171c19' : '#f5f6f3')
-}
-media?.addEventListener?.('change', event => { systemDark.value = event.matches; apply() })
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', event => {
-    if (event.key !== STORAGE_KEY && event.key !== null) return
-    theme.value = isValid(event.newValue) ? event.newValue : 'system'
-    apply()
-  })
-}
-apply()
+// 模块级单例：所有组件共享同一主题状态；模块加载时即应用，避免首屏闪烁。
+const theme = ref(resolveInitial())
+apply(theme.value)
 
 export function useTheme() {
   function setTheme(next) {
-    if (!isValid(next)) return
+    if (!VALUES.includes(next)) return
     theme.value = next
-    try { localStorage.setItem(STORAGE_KEY, next) } catch { /* Keep this visit usable. */ }
-    apply()
+    apply(next)
   }
-  return { theme, resolvedTheme, themes: THEMES, setTheme }
+
+  function cycleTheme() {
+    const idx = VALUES.indexOf(theme.value)
+    setTheme(VALUES[(idx + 1) % VALUES.length])
+  }
+
+  return { theme, themes: THEMES, setTheme, cycleTheme }
 }

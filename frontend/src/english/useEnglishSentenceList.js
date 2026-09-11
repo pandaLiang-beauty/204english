@@ -1,6 +1,5 @@
 import { computed, ref } from 'vue'
 import { englishApi } from './api.js'
-import { useEnglishActivity } from './useEnglishActivity.js'
 import { createReviewEventQueue } from './createReviewEventQueue.js'
 import { markedWordsFromText } from './passageMarkdown.js'
 import {
@@ -17,8 +16,8 @@ import { sentenceInstanceKey } from './sentencePresentation.js'
 
 export function useEnglishSentenceList(context = {}) {
   const sentences = ref([])
-  const { stats, heatmap, weakNetworkWords, legacyReviewTotal, heatmapCells, heatmapColumns,
-    heatCellClass, heatCellTitle, fetchActivity, invalidateActivity } = useEnglishActivity(context)
+  const stats = ref({})
+  const heatmap = ref(null)
   const error = ref('')
   const loading = ref(false)
   const saving = ref(false)
@@ -30,6 +29,7 @@ export function useEnglishSentenceList(context = {}) {
   const searchInput = ref('')
   const appliedSearch = ref('')
   const sort = ref('smart')
+  const createOpen = ref(false)
   const draft = ref(emptySentenceDraft())
   const bulkText = ref('')
   const bulkLoading = ref(false)
@@ -38,9 +38,18 @@ export function useEnglishSentenceList(context = {}) {
   const roundInitialized = ref(false)
   const translationRefreshTimers = new Map()
   let roundBoundaryTimer = null
-  let loadRevision = 0
 
   const pageCount = computed(() => Math.max(1, Math.ceil(total.value / Number(pageSize.value || 20))))
+  const weakNetworkWords = computed(() => stats.value?.word_network?.weak_words || [])
+  const legacyReviewTotal = computed(() => heatmap.value?.legacy_total_reviews ?? stats.value?.legacy?.total_reviews ?? 0)
+  const heatmapDays = computed(() => heatmap.value?.days || [])
+  const heatmapCells = computed(() => {
+    const days = heatmapDays.value
+    if (!days.length) return []
+    const leading = Number(days[0]?.weekday || 0)
+    return [...Array.from({ length: leading }, () => null), ...days]
+  })
+  const heatmapColumns = computed(() => Math.max(1, Math.ceil(heatmapCells.value.length / 7)))
   const bulkSentences = computed(() => splitBulkSentences(bulkText.value))
 
   function needsGeneratedTranslation(sentence) {
@@ -133,6 +142,24 @@ export function useEnglishSentenceList(context = {}) {
     }
   }
 
+  function heatCellClass(day, size = 'normal') {
+    const base = `${size === 'large' ? 'h-3.5 w-3.5' : 'h-3 w-3'} rounded-[3px] border`
+    if (!day) return `${base} border-transparent`
+    const count = Number(day.total || 0)
+    const max = Number(heatmap.value?.max_count || 0)
+    if (count <= 0 || max <= 0) return `${base} border-border bg-surface`
+    const ratio = count / max
+    if (ratio >= 0.75) return `${base} border-primary bg-primary`
+    if (ratio >= 0.45) return `${base} border-primary/70 bg-primary/70`
+    if (ratio >= 0.2) return `${base} border-primary/40 bg-primary/40`
+    return `${base} border-primary/20 bg-primary/20`
+  }
+
+  function heatCellTitle(day) {
+    if (!day) return ''
+    return `${day.date} · ${day.total || 0} 次 · 整句 ${day.sentence_reviews || 0} · 单词 ${day.word_reviews || 0}`
+  }
+
   function audioControls() {
     return context.audioControls?.() || {}
   }
@@ -161,8 +188,24 @@ export function useEnglishSentenceList(context = {}) {
     }, Math.min(delay, 2147483647))
   }
 
+  async function fetchActivity({ includeHeatmap = false } = {}) {
+    const statsRequest = englishApi.stats({
+      includeWordNetwork: !context.isReview?.()
+    })
+    if (includeHeatmap) {
+      const [statsResult, heatmapResult] = await Promise.all([
+        statsRequest,
+        englishApi.heatmap({ days: 119 })
+      ])
+      stats.value = statsResult
+      heatmap.value = heatmapResult
+    } else {
+      stats.value = await statsRequest
+    }
+    total.value = Number(stats.value?.active || total.value || 0)
+  }
+
   async function load(options = {}) {
-    const revision = ++loadRevision
     loading.value = true
     error.value = ''
     try {
@@ -175,7 +218,6 @@ export function useEnglishSentenceList(context = {}) {
 
       if (context.isStats?.()) {
         await fetchActivity({ includeHeatmap: true })
-        if (revision !== loadRevision) return
         audioControls().disposeSentenceCaches?.(sentences.value)
         sentences.value = []
         return
@@ -202,12 +244,11 @@ export function useEnglishSentenceList(context = {}) {
               resume: shouldResumeRound
             }
       )
-      // Activity refresh never changes the total of this paginated list.
+      // 统计与列表独立，首屏并发请求；列表 total 仍在随后覆盖统计值。
       const [, firstPage] = await Promise.all([
         fetchActivity(),
         englishApi.sentences(sentenceParams)
       ])
-      if (revision !== loadRevision) return
       let data = firstPage
       const previousByKey = new Map(sentences.value.map(sentence => [sentenceInstanceKey(sentence), sentence]))
       let loadedItems = (data.items || []).map(item => (
@@ -231,7 +272,6 @@ export function useEnglishSentenceList(context = {}) {
           page: resumePage,
           resume: false
         })
-        if (revision !== loadRevision) return
         loadedItems = (data.items || []).map(item => (
           decorateSentenceRecord(item, previousByKey.get(sentenceInstanceKey(item)))
         ))
@@ -254,9 +294,9 @@ export function useEnglishSentenceList(context = {}) {
       audioControls().resetPreloadWindow?.()
       if (!context.isCreate?.()) audioControls().schedulePreloadWindow?.(0)
     } catch (err) {
-      if (revision === loadRevision) error.value = err?.message || '英语数据加载失败'
+      error.value = err?.message || '英语数据加载失败'
     } finally {
-      if (revision === loadRevision) loading.value = false
+      loading.value = false
     }
   }
 
@@ -298,6 +338,7 @@ export function useEnglishSentenceList(context = {}) {
     try {
       await englishApi.createSentence(sentenceDraftPayload(draft.value))
       draft.value = emptySentenceDraft()
+      createOpen.value = false
       await reloadFirstPage()
       audioControls().scheduleAudioStatusRefresh?.()
     } catch (err) {
@@ -356,9 +397,6 @@ export function useEnglishSentenceList(context = {}) {
   }
 
   function toggleEditor(sentence) {
-    if (sentence.ui.showEditor && JSON.stringify(sentenceDraftPayload(sentence.ui.editDraft)) !== JSON.stringify(sentenceDraftPayload(sentenceToDraft(sentence)))) {
-      if (!window.confirm('这句话还有未保存的修改，确定放弃吗？')) return
-    }
     sentence.ui.showEditor = !sentence.ui.showEditor
     sentence.ui.message = ''
     if (sentence.ui.showEditor) sentence.ui.editDraft = sentenceToDraft(sentence)
@@ -496,11 +534,6 @@ export function useEnglishSentenceList(context = {}) {
     onRoundCompleted: handleReviewRoundCompleted
   })
   function resetForModeChange() {
-    loadRevision += 1
-    invalidateActivity()
-    audioControls().resetPreloadWindow?.()
-    appliedSearch.value = ''
-    searchInput.value = ''
     clearRoundBoundaryTimer()
     if (typeof window !== 'undefined') {
       translationRefreshTimers.forEach(timer => window.clearTimeout(timer))
@@ -509,6 +542,7 @@ export function useEnglishSentenceList(context = {}) {
     page.value = 1
     roundInitialized.value = false
     reviewRound.value = null
+    createOpen.value = false
     error.value = ''
   }
 
@@ -527,6 +561,7 @@ export function useEnglishSentenceList(context = {}) {
     searchInput,
     appliedSearch,
     sort,
+    createOpen,
     draft,
     bulkText,
     bulkLoading,
