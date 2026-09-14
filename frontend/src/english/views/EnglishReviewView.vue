@@ -108,7 +108,7 @@
                 <button
                   v-if="token.focus"
                   type="button"
-                  class="rounded-md bg-primary/10 px-1.5 font-semibold text-primary underline-offset-4 transition hover:bg-primary/15 hover:underline"
+                  class="review-focus-word rounded-md bg-primary/10 px-1.5 font-semibold text-primary underline-offset-4 transition hover:bg-primary/15 hover:underline"
                   @click="playWord(sentence, token.text)"
                 >{{ token.text }}</button>
                 <span v-else class="whitespace-pre-wrap">{{ token.text }}</span>
@@ -160,7 +160,7 @@
                   <span
                     v-for="entry in wordEntries(sentence)"
                     :key="entry.word"
-                    class="inline-flex max-w-full items-center gap-2 rounded-md border border-primary/25 bg-primary/10 px-2 py-1.5 text-sm text-primary"
+                    class="review-word-entry inline-flex max-w-full items-center gap-2 rounded-md border border-primary/25 bg-primary/10 px-2 py-1.5 text-sm text-primary"
                   >
                     <span class="min-w-0 break-words">
                       <span class="font-semibold">{{ entry.word }}</span>
@@ -170,7 +170,7 @@
                     <span class="grid shrink-0 justify-items-center gap-1">
                       <button
                         type="button"
-                        class="inline-flex h-7 w-8 items-center justify-center rounded-md border border-primary/30 text-primary transition hover:bg-primary/10 disabled:opacity-50"
+                        class="review-word-audio inline-flex h-7 w-8 items-center justify-center rounded-md border border-primary/30 text-primary transition hover:bg-primary/10 disabled:opacity-50"
                         :disabled="sentence.ui.wordPlaying === entry.word"
                         :title="entry.audio ? '播放读音' : '无读音'"
                         @click="playWord(sentence, entry.word)"

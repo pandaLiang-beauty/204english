@@ -1,0 +1,412 @@
+# 204 英语复习：全部 34 个接口的请求示例（部分接口有多个场景）。
+# 配合 api-reference.md，使用 VS Code REST Client / JetBrains HTTP Client 逐条运行。
+# 登录后将 Set-Cookie 中的 Cookie 值放入私有变量 sessionCookie；不要复制属性部分。
+# 若工具已启用自动 CookieJar，可删除下面各请求的手工 Cookie 行，让工具管理。
+# password 与 sessionCookie 的真实值放在工具私有环境中，不提交到仓库。
+# sentenceId、passageId 填入本次新建的示例对象 ID；roundItemId 从真实队列项获取。
+# 此文件包含保存、播放计数、完成和删除请求，按需要单独发送；删除放在文件末尾。
+
+@baseUrl = https://204.xpliang.tech
+@password = REPLACE_WITH_YOUR_PASSWORD
+@sessionCookie = REPLACE_WITH_SESSION_COOKIE_VALUE
+@sentenceId = 0
+@passageId = 0
+@roundItemId = 0
+@word = consistent
+# 以下 URL 完整复制响应中的值，保留 ?v=，不要从文件名自行推导。
+@sentenceAudioUrl = /api/english/audio/0?v=REPLACE_FROM_RESPONSE
+@pronunciationUrl = /api/english/pronunciations/0/REPLACE_FROM_RESPONSE
+@previewUrl = /api/english/audio/previews/edge/en-US-JennyNeural?v=REPLACE_FROM_RESPONSE
+
+### 健康检查
+# GET /api/health
+# @name getHealth
+GET {{baseUrl}}/api/health
+
+### 密码登录并设置会话 Cookie
+# POST /api/auth/login
+# @name login
+POST {{baseUrl}}/api/auth/login
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "password": "{{password}}"
+}
+
+### 读取当前用户
+# GET /api/auth/me
+# @name getCurrentUser
+GET {{baseUrl}}/api/auth/me
+Cookie: english_study_session={{sessionCookie}}
+
+### 创建或复用句子
+# POST /api/english/sentences
+# @name createSentence
+POST {{baseUrl}}/api/english/sentences
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "text": "Progress depends on **consistent** practice.",
+  "word_translations": {
+    "consistent": "持续的"
+  },
+  "word_tips": {
+    "consistent": "在这里形容练习持续、稳定。"
+  },
+  "sentence_translation": "进步离不开持续的练习。",
+  "sentence_segments": [
+    "Progress depends on",
+    "consistent practice."
+  ],
+  "translation_segments": [
+    "进步离不开",
+    "持续的练习。"
+  ]
+}
+
+### 句子列表或持久化复习队列
+# GET /api/english/sentences
+# @name listSentences
+GET {{baseUrl}}/api/english/sentences?page=1&page_size=40&sort=latest
+Cookie: english_study_session={{sessionCookie}}
+
+### 句子列表或持久化复习队列：恢复本轮安排
+# GET /api/english/sentences
+# @name listSentencesAlternative
+GET {{baseUrl}}/api/english/sentences?sort=smart&round_queue=true&resume=true&page_size=40
+Cookie: english_study_session={{sessionCookie}}
+
+### 句子详情
+# GET /api/english/sentences/{sentence_id}
+# @name getSentence
+GET {{baseUrl}}/api/english/sentences/{{sentenceId}}
+Cookie: english_study_session={{sessionCookie}}
+
+### 完整更新句子
+# PUT /api/english/sentences/{sentence_id}
+# @name updateSentence
+PUT {{baseUrl}}/api/english/sentences/{{sentenceId}}
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "text": "Progress depends on **consistent** practice.",
+  "word_translations": {
+    "consistent": "持续的"
+  },
+  "word_tips": {
+    "consistent": "在这里形容练习持续、稳定。"
+  },
+  "sentence_translation": "进步离不开持续的练习。",
+  "sentence_segments": [
+    "Progress depends on",
+    "consistent practice."
+  ],
+  "translation_segments": [
+    "进步离不开",
+    "持续的练习。"
+  ]
+}
+
+### 批量创建或复用句子
+# POST /api/english/sentences/bulk
+# @name createSentencesBulk
+POST {{baseUrl}}/api/english/sentences/bulk
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "text": "Progress depends on **consistent** practice.",
+      "word_translations": {
+        "consistent": "持续的"
+      },
+      "word_tips": {
+        "consistent": "在这里形容练习持续、稳定。"
+      },
+      "sentence_translation": "进步离不开持续的练习。",
+      "sentence_segments": [
+        "Progress depends on",
+        "consistent practice."
+      ],
+      "translation_segments": [
+        "进步离不开",
+        "持续的练习。"
+      ]
+    },
+    {
+      "text": "A **consistent** routine can help."
+    }
+  ]
+}
+
+### 恢复复习队列并获取统计
+# GET /api/english/flow/queue
+# @name getFlowQueue
+GET {{baseUrl}}/api/english/flow/queue?limit=20
+Cookie: english_study_session={{sessionCookie}}
+
+### 记录整句播放或完成安排：实际开始播放后上报
+# POST /api/english/sentences/{sentence_id}/review
+# @name recordSentenceReviewAlternative
+POST {{baseUrl}}/api/english/sentences/{{sentenceId}}/review
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "event_type": "sentence_play",
+  "complete_round_item": false,
+  "round_item_id": {{roundItemId}}
+}
+
+### 记录整句播放或完成安排
+# POST /api/english/sentences/{sentence_id}/review
+# @name recordSentenceReview
+POST {{baseUrl}}/api/english/sentences/{{sentenceId}}/review
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "event_type": "sentence_review",
+  "complete_round_item": true,
+  "round_item_id": {{roundItemId}}
+}
+
+### 记录重点词播放
+# POST /api/english/sentences/{sentence_id}/words/{word}/play
+# @name recordWordPlay
+POST {{baseUrl}}/api/english/sentences/{{sentenceId}}/words/{{word}}/play
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+
+### 标记、取消或切换重点词
+# POST /api/english/sentences/{sentence_id}/focus-word
+# @name setFocusWord
+POST {{baseUrl}}/api/english/sentences/{{sentenceId}}/focus-word
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "word": "consistent",
+  "action": "mark"
+}
+
+### 生成整句翻译与词卡草稿
+# POST /api/english/translate
+# @name translateSentence
+POST {{baseUrl}}/api/english/translate
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "text": "Progress depends on **consistent** practice.",
+  "words": [
+    "consistent"
+  ],
+  "sentence_id": {{sentenceId}}
+}
+
+### 生成重点词词卡草稿
+# POST /api/english/translate/words
+# @name translateWords
+POST {{baseUrl}}/api/english/translate/words
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "text": "Progress depends on **consistent** practice.",
+  "words": [
+    "consistent"
+  ],
+  "sentence_translation": "进步离不开持续的练习。",
+  "sentence_id": {{sentenceId}}
+}
+
+### 创建阅读文章
+# POST /api/english/passages
+# @name createPassage
+POST {{baseUrl}}/api/english/passages
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "title": "Practice and progress",
+  "source_label": "示例阅读",
+  "source_url": "",
+  "year": 2026,
+  "exam_type": "english2",
+  "passage_type": "reading_a",
+  "body_text": "Progress depends on **consistent** practice.\n\nSmall steps build **confidence**.",
+  "status": "new"
+}
+
+### 文章列表及今日推荐
+# GET /api/english/passages
+# @name listPassages
+GET {{baseUrl}}/api/english/passages?page=1&page_size=20
+Cookie: english_study_session={{sessionCookie}}
+
+### 获取今日首篇文章
+# GET /api/english/passages/today
+# @name getTodayPassage
+GET {{baseUrl}}/api/english/passages/today
+Cookie: english_study_session={{sessionCookie}}
+
+### 文章详情
+# GET /api/english/passages/{passage_id}
+# @name getPassage
+GET {{baseUrl}}/api/english/passages/{{passageId}}
+Cookie: english_study_session={{sessionCookie}}
+
+### 完整更新文章
+# PUT /api/english/passages/{passage_id}
+# @name updatePassage
+PUT {{baseUrl}}/api/english/passages/{{passageId}}
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "title": "Practice and progress",
+  "source_label": "示例阅读",
+  "source_url": "",
+  "year": 2026,
+  "exam_type": "english2",
+  "passage_type": "reading_a",
+  "body_text": "Progress depends on **consistent** practice.\n\nSmall steps build **confidence**.",
+  "status": "reading"
+}
+
+### 同步文章中的标注句
+# candidate_indexes: [] 代表同步全部标注句，不代表不选择。
+# POST /api/english/passages/{passage_id}/sync-sentences
+# @name syncPassageSentences
+POST {{baseUrl}}/api/english/passages/{{passageId}}/sync-sentences
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "candidate_indexes": []
+}
+
+### 标记文章完成
+# POST /api/english/passages/{passage_id}/complete
+# @name completePassage
+POST {{baseUrl}}/api/english/passages/{{passageId}}/complete
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+
+### 音色目录及全局设置
+# GET /api/english/audio/settings
+# @name getAudioSettings
+GET {{baseUrl}}/api/english/audio/settings
+Cookie: english_study_session={{sessionCookie}}
+
+### 保存全局句子音色
+# PUT /api/english/audio/settings
+# @name setAudioSettings
+PUT {{baseUrl}}/api/english/audio/settings
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "provider": "edge",
+  "voice": "en-US-JennyNeural"
+}
+
+### 为跟随全局的句子安排音频生成
+# POST /api/english/audio/settings/apply
+# @name applyAudioSettings
+POST {{baseUrl}}/api/english/audio/settings/apply
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+
+### 设置单句音色或恢复跟随全局
+# PUT /api/english/sentences/{sentence_id}/audio-settings
+# @name setSentenceAudioSettings
+PUT {{baseUrl}}/api/english/sentences/{{sentenceId}}/audio-settings
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "use_global": true
+}
+
+### 生成或复用音色试听
+# POST /api/english/audio/previews
+# @name createAudioPreview
+POST {{baseUrl}}/api/english/audio/previews
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+Content-Type: application/json
+
+{
+  "provider": "edge",
+  "voice": "en-US-JennyNeural"
+}
+
+### 读取试听音频
+# GET /api/english/audio/previews/{provider}/{voice}
+# @name getAudioPreview
+GET {{baseUrl}}{{previewUrl}}
+Cookie: english_study_session={{sessionCookie}}
+
+### 读取整句音频
+# GET /api/english/audio/{sentence_id}
+# @name getSentenceAudio
+GET {{baseUrl}}{{sentenceAudioUrl}}
+Cookie: english_study_session={{sessionCookie}}
+
+### 读取重点词发音
+# GET /api/english/pronunciations/{sentence_id}/{filename}
+# @name getPronunciation
+GET {{baseUrl}}{{pronunciationUrl}}
+Cookie: english_study_session={{sessionCookie}}
+
+### 学习统计
+# GET /api/english/stats
+# @name getStats
+GET {{baseUrl}}/api/english/stats?include_word_network=true
+Cookie: english_study_session={{sessionCookie}}
+
+### 播放热力图
+# GET /api/english/heatmap
+# @name getHeatmap
+GET {{baseUrl}}/api/english/heatmap?days=119
+Cookie: english_study_session={{sessionCookie}}
+
+### 软删除文章
+# DELETE /api/english/passages/{passage_id}
+# @name deletePassage
+DELETE {{baseUrl}}/api/english/passages/{{passageId}}
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+
+### 软删除句子
+# DELETE /api/english/sentences/{sentence_id}
+# @name deleteSentence
+DELETE {{baseUrl}}/api/english/sentences/{{sentenceId}}
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1
+
+### 退出会话
+# POST /api/auth/logout
+# @name logout
+POST {{baseUrl}}/api/auth/logout
+Cookie: english_study_session={{sessionCookie}}
+X-Study-Write: 1

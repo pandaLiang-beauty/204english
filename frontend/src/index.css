@@ -43,24 +43,27 @@
   --paper-shadow: 0 1px 3px rgb(51 41 27 / 4%);
 }
 
-/* 夜间降低底色亮度，正文、次要文字和强调色分别保持可读对比。 */
+/* 保留炭灰与铜色，提亮底色并柔化正文，降低长文阅读的明暗反差。
+   参考 Solarized 的 selective contrast 与 Everforest 的 soft/medium 层级：
+   https://github.com/altercation/solarized#features
+   https://github.com/sainnhe/everforest/blob/master/palette.md */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #191917;
-  --surface: #23231f;
-  --surface-2: #2c2c26;
-  --border: #46463c;
-  --text: #eeeae0;
-  --muted: #b9b3a5;
-  --primary: #e49475;
-  --primary-foreground: #211a16;
-  --success: #7cba8c;
-  --success-soft: #24301f;
-  --warning: #dcae63;
-  --warning-soft: #342a18;
-  --danger: #e08b83;
-  --danger-soft: #35211f;
-  --paper-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+  --bg: #22262b;
+  --surface: #2a2e34;
+  --surface-2: #32373e;
+  --border: #454b54;
+  --text: #c1c3c6;
+  --muted: #a0a6af;
+  --primary: #c39a82;
+  --primary-foreground: #1c1714;
+  --success: #8cbaa0;
+  --success-soft: #24332c;
+  --warning: #d1b47e;
+  --warning-soft: #332e24;
+  --danger: #da9a97;
+  --danger-soft: #37282b;
+  --paper-shadow: 0 4px 16px rgb(0 0 0 / 14%);
 }
 
 @layer base {

@@ -2,6 +2,12 @@
 
 这是位于 `/root/sysStuByAI/204english` 的单用户英语复习工具。简短架构说明见 [`docs/architecture.md`](docs/architecture.md)。
 
+## API 与 Android 客户端
+
+当前后端的全部 34 个接口、请求和响应字段、错误及复习规则见 [完整 API 文档](docs/api-reference.md)。
+安卓开发可配合 [Android 接入指南](docs/android-client-guide.md)、[OpenAPI 3.1 文件](docs/openapi.json) 和 [HTTP 请求示例](docs/api-examples.http)。
+接口使用 Cookie 会话，所有写请求（包括登录）必须带 `X-Study-Write: 1`；播放器也需要携带同一会话。
+
 ## 安装
 
 需要 Python 3.9+、Node.js 22 和 npm。复制配置并设置初始密码：
