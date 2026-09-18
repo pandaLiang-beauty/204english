@@ -7,7 +7,7 @@ from typing import Any
 from ..platform.db import begin_immediate
 
 
-ROUND_LENGTH_DAYS = 7
+RECOMMENDED_DAILY_ITEMS = 100
 TEST_ROUND_ID_ENV = "STUDY_ENGLISH_REVIEW_ROUND_TEST_ID"
 TEST_EXPIRES_AT_ENV = "STUDY_ENGLISH_REVIEW_ROUND_TEST_EXPIRES_AT"
 
@@ -55,8 +55,9 @@ def _test_expiry_override(row: Any) -> datetime | None:
     return target
 
 
-def _expiry_for(now: datetime) -> datetime:
-    return study_boundary_for(now) + timedelta(days=ROUND_LENGTH_DAYS)
+def round_length_days(item_count: int) -> int:
+    """Plan at most 100 items per day, without limiting actual review activity."""
+    return max(1, (item_count + RECOMMENDED_DAILY_ITEMS - 1) // RECOMMENDED_DAILY_ITEMS)
 
 
 def _next_study_boundary(value: datetime) -> datetime:
@@ -91,96 +92,37 @@ def _next_start_from_history(conn, *, user_id: int, now: datetime) -> datetime:
     else:
         candidate = _parse(row["expires_at"]) or study_boundary_for(now)
 
-    while candidate + timedelta(days=ROUND_LENGTH_DAYS) <= now:
-        candidate += timedelta(days=ROUND_LENGTH_DAYS)
+    # The caller resolves missed cycles using each new snapshot's item count.
     return candidate
 
 
-def _previous_round(conn, *, user_id: int, round_id: int):
-    return conn.execute(
-        """
-        SELECT *
-        FROM english_review_rounds
-        WHERE user_id = ? AND id < ?
-        ORDER BY id DESC
-        LIMIT 1
-        """,
-        (user_id, round_id),
-    ).fetchone()
-
-
 def normalize_active_round_boundary(conn, *, user_id: int, now: datetime | None = None) -> dict | None:
-    """Repair an active cycle created by the old request-time implementation.
+    """Resize a legacy seven-day round without changing its start or items.
 
-    Existing progress is preserved; only the cycle's fixed boundary timestamps
-    are corrected. New cycles are created with these timestamps from the start.
+    The frozen item count includes repeats and soft-deleted sentences. Finishing
+    items, adding sentences, or deleting sentences never shifts the deadline.
     """
     current_now = now or _utc_now()
     row = _round_row(conn, user_id=user_id)
     if not row:
         return None
-    test_expiry = _test_expiry_override(row)
-    if test_expiry is not None:
-        if _parse(row["expires_at"]) != test_expiry:
-            conn.execute(
-                """
-                UPDATE english_review_rounds
-                SET expires_at = ?, updated_at = ?
-                WHERE id = ? AND status = 'active'
-                """,
-                (_iso(test_expiry), _iso(current_now), int(row["id"])),
-            )
-            row = _round_row(conn, user_id=user_id)
-        return dict(row) if row else None
-    previous = _previous_round(conn, user_id=user_id, round_id=int(row["id"]))
-    if not previous:
-        current_expiry = _parse(row["expires_at"])
-        expected_start = (
-            current_expiry - timedelta(days=ROUND_LENGTH_DAYS)
-            if current_expiry
-            else study_boundary_for(current_now)
-        )
-        if expected_start <= current_now and _parse(row["started_at"]) != expected_start:
-            now_text = _iso(current_now)
-            conn.execute(
-                """
-                UPDATE english_review_rounds
-                SET started_at = ?, expires_at = ?, updated_at = ?
-                WHERE id = ? AND status = 'active'
-                """,
-                (_iso(expected_start), _iso(expected_start + timedelta(days=ROUND_LENGTH_DAYS)), now_text, int(row["id"])),
-            )
-            return dict(conn.execute("SELECT * FROM english_review_rounds WHERE id = ?", (int(row["id"]),)).fetchone())
+    started_at = _parse(row["started_at"]) or study_boundary_for(current_now)
+    item_count = int(conn.execute(
+        "SELECT COUNT(*) FROM english_review_round_items WHERE round_id = ?",
+        (int(row["id"]),),
+    ).fetchone()[0])
+    expected_expiry = _test_expiry_override(row) or started_at + timedelta(days=round_length_days(item_count))
+    if _parse(row["expires_at"]) == expected_expiry:
         return dict(row)
-    expected_start = None
-    previous_expiry = _parse(previous["expires_at"])
-    if str(previous["end_reason"] or "") == "completed":
-        completed_row = conn.execute(
-            "SELECT MAX(completed_at) AS completed_at FROM english_review_round_items WHERE round_id = ?",
-            (int(previous["id"]),),
-        ).fetchone()
-        completed_at = _parse(completed_row["completed_at"] if completed_row else None)
-        expected_start = _next_study_boundary(completed_at or previous_expiry or current_now)
-    else:
-        expected_start = previous_expiry
-    if expected_start is None:
-        expected_start = study_boundary_for(current_now)
-    if expected_start > current_now:
-        return dict(row)
-    expected_expiry = expected_start + timedelta(days=ROUND_LENGTH_DAYS)
-    if _parse(row["started_at"]) == expected_start and _parse(row["expires_at"]) == expected_expiry:
-        return dict(row)
-    now_text = _iso(current_now)
     conn.execute(
         """
         UPDATE english_review_rounds
-        SET started_at = ?, expires_at = ?, updated_at = ?
+        SET expires_at = ?, updated_at = ?
         WHERE id = ? AND status = 'active'
         """,
-        (_iso(expected_start), _iso(expected_expiry), now_text, int(row["id"])),
+        (_iso(expected_expiry), _iso(current_now), int(row["id"])),
     )
-    updated = dict(conn.execute("SELECT * FROM english_review_rounds WHERE id = ?", (int(row["id"]),)).fetchone())
-    return updated
+    return dict(conn.execute("SELECT * FROM english_review_rounds WHERE id = ?", (int(row["id"]),)).fetchone())
 
 
 def due_round_start(conn, *, user_id: int, now: datetime | None = None) -> datetime | None:
@@ -262,7 +204,7 @@ def _create_round(
         ) VALUES (?, 'active', ?, ?, '', '', ?, ?)
         ON CONFLICT DO NOTHING
         """,
-        (user_id, start_text, _iso(round_start + timedelta(days=ROUND_LENGTH_DAYS)), created_text, created_text),
+        (user_id, start_text, _iso(round_start + timedelta(days=round_length_days(len(schedule)))), created_text, created_text),
     )
     row = _round_row(conn, user_id=user_id)
     if not row:
@@ -310,12 +252,16 @@ def advance_active_round(
     row = _round_row(conn, user_id=user_id)
     if row:
         return dict(row), False
+    round_start = start_at or due_round_start(conn, user_id=user_id, now=now) or study_boundary_for(now)
+    duration = timedelta(days=round_length_days(len(schedule)))
+    if round_start + duration <= now:
+        round_start += ((now - round_start) // duration) * duration
     current = _create_round(
         conn,
         user_id=user_id,
         schedule=schedule,
         now=now,
-        started_at=start_at or due_round_start(conn, user_id=user_id, now=now) or study_boundary_for(now),
+        started_at=round_start,
     )
     return current, True
 

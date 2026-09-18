@@ -15,12 +15,13 @@
           <div class="min-w-0">
             <div class="text-xs font-medium text-muted">英语 · {{ modeLabel }}</div>
             <h1 class="mt-1 text-xl font-semibold tracking-normal text-text">{{ pageTitle }}</h1>
-            <div v-if="isReview" class="mt-2 max-w-2xl">
-              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted">
+            <div v-if="isReview" class="mt-2">
+              <div class="review-progress-summary flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted">
                 <span v-if="reviewRound">
                   本轮 <span class="font-semibold text-text">{{ reviewRound.completed || 0 }} / {{ reviewRound.total || 0 }}</span>
                 </span>
                 <span v-if="reviewRound">剩余 {{ reviewRound.remaining || 0 }}</span>
+                <ReviewRoundPacing v-if="reviewRound" :round="reviewRound" />
                 <span v-if="reviewRoundEndTime">本轮结束 {{ reviewRoundEndTime }}（北京时间）</span>
                 <span>今日 {{ stats.today?.reviewed_sentences ?? 0 }} 句</span>
                 <span>整句 {{ stats.today?.sentence_reviews ?? 0 }} 次</span>
@@ -215,6 +216,7 @@ import EnglishLibraryView from './views/EnglishLibraryView.vue'
 import EnglishPassagesView from './views/EnglishPassagesView.vue'
 import EnglishReviewView from './views/EnglishReviewView.vue'
 import EnglishStatsView from './views/EnglishStatsView.vue'
+import ReviewRoundPacing from './ReviewRoundPacing.vue'
 import { useEnglishAudio } from './useEnglishAudio'
 import { useEnglishAudioSettings } from './useEnglishAudioSettings'
 import { useEnglishSentenceList } from './useEnglishSentenceList'

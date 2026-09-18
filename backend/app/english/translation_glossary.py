@@ -14,6 +14,8 @@ PHRASE_WORD_REFERENCES = (
     ("police", r"\bfood police\b", ("饮食卫士", "饮食警察"), "用于 food police，整体比喻对他人饮食进行说教的人"),
     ("exactly", r"\balmost exactly tracks?\b", ("几乎",), "完全地（almost exactly：几乎完全）"),
     ("vocal", r"\bvocal\s+(?:group|minority|critics?|supporters?|opponents?)\b", ("发声", "直言", "表达"), "敢于表达意见的；积极发声的"),
+    ("rests", r"\brests on an? understanding\b", ("基础", "建立", "依赖"), "用于 rest on，表示以……为基础"),
+    ("individual", r"\beach individual\b", ("每个人", "每个个体", "每一个人"), "个人（each 表示“每个”）"),
 )
 
 
@@ -78,7 +80,8 @@ def ground_word_cards(result: dict[str, Any], sentence: str, translation: str) -
         item["source_quote"] = expand_unique_quote(str(item.get("source_quote") or ""), sentence)
         item["translation_quote"] = expand_unique_quote(str(item.get("translation_quote") or ""), translation)
         meaning = str(item.get("translation") or "")
-        base, separator, context = meaning.partition("；句中：")
+        chinese, english_separator, english = meaning.partition("；英文：")
+        base, separator, context = chinese.partition("；句中：")
         if not separator:
             continue
         if word.casefold() == "granted" and re.search(r"\bfor granted\b", sentence, re.I) and "理所当然" in base:
@@ -92,5 +95,5 @@ def ground_word_cards(result: dict[str, Any], sentence: str, translation: str) -
             if word.casefold() == focus and re.search(pattern, sentence, re.I) and any(target in translation for target in targets):
                 context = reference
                 break
-        item["translation"] = f"{base}{separator}{context}"
+        item["translation"] = f"{base}{separator}{context}{english_separator}{english}"
         result["word_translations"][word] = item["translation"]

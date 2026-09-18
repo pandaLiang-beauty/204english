@@ -35,7 +35,7 @@ function audioBuffer() {
   return buffer
 }
 
-export async function mockStudy(page) {
+export async function mockStudy(page, options = {}) {
   const state = {
     requests: [], unhandled: [], failCreate: false,
     sentences: Array.from({ length: 12 }, (_, index) => sentence(index)),
@@ -47,13 +47,17 @@ export async function mockStudy(page) {
       body_text: 'Reading is more than a way to collect information. It is an opportunity to **encounter** unfamiliar ideas and to examine what we already believe. A useful question is not simply what a writer says, but how the argument has been developed.\n\nWhen we read a difficult passage, it is tempting to stop at every unfamiliar word. Yet the surrounding sentences often provide the **context** we need. Returning to a word after finishing the paragraph can make its meaning much clearer.\n\nThis is why regular practice matters. Small moments of careful reading gradually change the way we approach a text. Over time, ideas that once seemed distant begin to feel familiar.'
     }))
   }
-  const scheduled = [...state.sentences, ...state.sentences.slice(0, 10)].map((item, index) => ({
+  const scheduledCount = options.scheduledCount || 22
+  const scheduled = Array.from({ length: scheduledCount }, (_, index) => state.sentences[index % 12]).map((item, index) => ({
     ...item, review_round_item_id: 1000 + index, review_round_position: index + 1,
-    review_repeat_index: index >= 12 ? 2 : 1, review_repeat_total: item.id <= 10 ? 2 : 1
+    review_repeat_index: Math.floor(index / 12) + 1,
+    review_repeat_total: Math.floor((scheduledCount - item.id) / 12) + 1
   }))
+  scheduled.slice(0, options.completedCount || 0).forEach(item => state.completed.add(item.review_round_item_id))
   const round = () => ({ id: 11, total: scheduled.length, completed: state.completed.size,
     remaining: scheduled.length - state.completed.size, is_completed: state.completed.size === scheduled.length,
-    expires_at: '2099-09-17T00:00:00+00:00', next_round_at: '2099-09-12T00:00:00+00:00',
+    started_at: options.startedAt || '', expires_at: options.expiresAt || '2099-09-17T00:00:00+00:00',
+    next_round_at: '2099-09-12T00:00:00+00:00',
     resume_page: Math.floor(Math.max(0, scheduled.findIndex(item => !state.completed.has(item.review_round_item_id))) / 20) + 1
   })
   const voices = [{ provider: 'kokoro', voice: 'bf_emma', name: 'Emma', accent: '英式', gender: '女声', available: true, description: '清晰、平稳，适合长句阅读。' }, { provider: 'edge', voice: 'en-US-JennyNeural', name: 'Jenny', accent: '美式', gender: '女声', available: true, description: '自然、明快的美式发音。' }]

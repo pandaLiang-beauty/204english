@@ -328,7 +328,9 @@ suspend fun completeArrangement(item: SentenceDto): Response<ReviewResultDto> =
 
 请求期间禁用同一项的重复完成操作。处理完 HTTP 错误后，查看 newlyCompleted/roundExpired；false 可能表示已经完成或安排已失效，重新获取队列，不要把它覆盖成“未完成”。请求超时也先刷新，确需重试时使用原安排 ID。
 
-退出复习页面再回来、App 恢复前台、到达 expiresAt 或非空 nextRoundAt 时刷新队列。7 天周期及北京时间 08:00 边界由后端决定；设备改时区不改变服务端安排。
+退出复习页面再回来、App 恢复前台、到达 expiresAt 或非空 nextRoundAt 时刷新队列。周期天数为 `max(1, ceil(本轮初始安排数 / 100))`，如 1041 项为 11 天；周期和北京时间 08:00 边界由后端决定，设备改时区不改变服务端安排。整轮可自由复习，每日完成量不受限，已有接口路径、字段和类型保持兼容。
+
+客户端如需累计提醒，可用 startedAt、expiresAt 计算周期天数 D，按北京时间 08:00 计算今天为第 d 个学习日，建议累计 `ceil(total × d / D)` 项，再与 completed 比较显示差额或超前量。建议进度不用于禁用按钮或截断队列。
 
 ## 5. Media3 使用同一会话
 

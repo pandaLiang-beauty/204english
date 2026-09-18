@@ -1140,6 +1140,7 @@ def word_translation_issues(
     *,
     source_text: str = "",
     sentence_translation: str = "",
+    require_english_definition: bool = False,
 ) -> list[str]:
     issues: list[str] = []
     translations = result.get("word_translations") if isinstance(result.get("word_translations"), dict) else {}
@@ -1152,12 +1153,21 @@ def word_translation_issues(
     normalized_source = re.sub(r"\s+", " ", re.sub(r"\*\*(.*?)\*\*", r"\1", normalized_source)).casefold()
     for word in words:
         text = str(translations.get(word) or "").strip()
+        chinese, english_separator, english = text.partition("；英文：")
         if not text:
             issues.append(f"missing_word_translation:{word}")
-        elif text.count("本义：") != 1 or text.count("句中：") != 1:
+        elif chinese.count("本义：") != 1 or chinese.count("句中：") != 1:
             issues.append(f"bad_word_translation_format:{word}")
-        elif re.search(r"本义：\s*[；;]?\s*句中：|句中：\s*$", text):
+        elif re.search(r"本义：\s*[；;]?\s*句中：|句中：\s*$", chinese):
             issues.append(f"bad_word_translation_format:{word}")
+        if require_english_definition and not english_separator:
+            issues.append(f"missing_word_english_definition:{word}:请补充简明英文释义")
+        if english_separator and (
+            len(re.findall(r"[A-Za-z]+(?:['’-][A-Za-z]+)*", english)) < 2
+            or re.search(r"[\u4e00-\u9fff\r\n]", english)
+            or english.strip().strip(".!?").casefold() == word.casefold()
+        ):
+            issues.append(f"bad_word_english_definition:{word}:请用简单英文解释本句词义，不重复原词或夹带中文")
         if result.get("word_evidence_required"):
             item = items.get(word, {})
             source_quote = re.sub(r"\s+", " ", str(item.get("source_quote") or "")).strip().casefold()

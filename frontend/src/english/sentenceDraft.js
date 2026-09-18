@@ -54,8 +54,8 @@ export function translationSourceKey(text) {
     .trim()
 }
 
-// 已有整句译文不变、只新增重点词时，只需要补这些空释义。
-export function missingMarkedWords(value) {
+// 补空释义，也可为已有中文词义补充英文解释。
+export function missingMarkedWords(value, { includeMissingEnglish = false } = {}) {
   const translations = parseMap(value?.translationsText)
   const byNormalized = new Map(
     Object.entries(translations)
@@ -64,7 +64,10 @@ export function missingMarkedWords(value) {
   )
   return markedWordsFromText(value?.text)
     .map(item => String(item.word || '').trim())
-    .filter(word => word && !byNormalized.get(word.toLowerCase()))
+    .filter(word => {
+      const meaning = byNormalized.get(word.toLowerCase())
+      return word && (!meaning || (includeMissingEnglish && !englishDefinition(meaning)))
+    })
 }
 
 export function applyTranslationToDraft(target, result) {
@@ -87,13 +90,25 @@ export function applyTranslationToDraft(target, result) {
 
 export function applyWordTranslationsToDraft(target, result) {
   if (!target || !result) return target
-  const translations = mergeMaps(parseMap(target.translationsText), result.word_translations)
-  const tips = mergeMaps(parseMap(target.tipsText), result.word_tips)
+  const translations = mergeMaps(parseMap(target.translationsText), result.word_translations, (existing, generated) => {
+    if (!existing) return generated
+    if (englishDefinition(existing)) return existing
+    const english = englishDefinition(generated)
+    return english ? `${existing.split('；英文：')[0]}；英文：${english}` : existing
+  })
+  const tips = mergeMaps(parseMap(target.tipsText), result.word_tips, (existing, generated) => existing || generated)
   return {
     ...target,
     translationsText: stringifyMap(translations),
     tipsText: stringifyMap(tips)
   }
+}
+
+function englishDefinition(meaning) {
+  const separator = '；英文：'
+  const text = String(meaning || '')
+  const index = text.indexOf(separator)
+  return index < 0 ? '' : text.slice(index + separator.length).trim()
 }
 
 function stringifyMap(value) {
@@ -128,7 +143,7 @@ function parseSegments(text) {
     .filter(Boolean)
 }
 
-function mergeMaps(existing, additions) {
+function mergeMaps(existing, additions, mergeValue = (_existing, generated) => generated) {
   const output = { ...(existing || {}) }
   const existingKeys = new Map(
     Object.keys(output).map(key => [String(key || '').trim().toLowerCase(), key])
@@ -137,7 +152,7 @@ function mergeMaps(existing, additions) {
     const key = String(rawKey || '').trim()
     if (!key) continue
     const existingKey = existingKeys.get(key.toLowerCase()) || key
-    output[existingKey] = String(rawValue || '').trim()
+    output[existingKey] = mergeValue(output[existingKey], String(rawValue || '').trim())
     existingKeys.set(key.toLowerCase(), existingKey)
   }
   return output

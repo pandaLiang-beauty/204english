@@ -191,7 +191,7 @@ Set-Cookie: english_study_session=<opaque-session>; HttpOnly; Max-Age=1209600; P
 | --- | --- | --- |
 | `id` | integer | 句子 ID |
 | `text` | string | 带 `**重点词或短语**` 标记的原文 |
-| `word_translations` | object<string,string> | 重点词到中文词义；尚无词义时值为 `""` |
+| `word_translations` | object<string,string> | 重点词到释义文本；新生成内容含中文本义、句中义和简明英文解释，尚无词义时值为 `""` |
 | `word_tips` | object<string,string> | 重点词到用法提示，可缺少部分词 |
 | `word_play_counts` | object<string,integer> | 各重点词的播放计数 |
 | `word_play_total` | integer | 当前保留的词播放计数总和 |
@@ -220,6 +220,10 @@ Set-Cookie: english_study_session=<opaque-session>; HttpOnly; Max-Age=1209600; P
 | `algorithm` | object，可缺省 | 智能排序指标，主要在 smart 列表和队列中返回 |
 
 播放按钮应依据 `audio_available && audio_url.isNotBlank()`；不能只判断 `audio_status == "ready"`。全局音色改变后，旧文件可能仍记录为 ready，但已经不匹配目标音色。
+
+重点词的英文解释复用现有字符串，例如 `"approachable": "本义：平易近人的；句中：平易近人；英文：friendly and easy to talk to"`。接口路径、请求参数和响应字段类型不变，`word_translations` 仍为 `Map<String, String>`，`items[].translation` 仍为字符串；客户端直接展示整段即可。历史中文释义仍可读取和保存，不会仅因缺少英文解释就变成 `translation_pending`。网页编辑页可用已有的「生成翻译」操作补充英文解释，保存后生效，已有中文释义和整句译文保留。
+
+2026-09-15 已一次性[补齐现有 710 句、2333 个重点词的英文解释](english-definitions-backfill-20260915.md)。客户端重新读取句子即可显示，无需调整接口或逐条生成。
 
 `word_network` 字段：
 
@@ -356,7 +360,7 @@ GET /api/english/sentences?sort=smart&round_queue=true&resume=true&page_size=40
 | --- | --- | --- |
 | `id` | integer | 复习周期 ID，与安排 ID 不同 |
 | `started_at` | string | 周期开始时间 |
-| `expires_at` | string | 周期到期时间 |
+| `expires_at` | string | 周期到期时间；由初始安排总数计算周期天数 |
 | `completed` | integer | 已完成安排数量 |
 | `total` | integer | 当前未删除句子的安排总数 |
 | `remaining` | integer | 剩余安排数量 |
@@ -368,7 +372,9 @@ GET /api/english/sentences?sort=smart&round_queue=true&resume=true&page_size=40
 
 分页外层 `total` 也是**安排数量**。队列页会包含已完成项，客户端可以在展示时隐藏，但不能用隐藏后的数量推算服务器页数。`resume=true` 时使用服务端返回的 `page`；创建新周期时强制返回第 1 页，其他队列请求的页号会被限制在现有页范围内。
 
-周期规则：固定 7 天，北京时间 08:00 为边界。服务端后台自动推进周期，读取队列也会补偿过期状态。提前完成时等到下一个北京时间 08:00 才开启新周期。当前周期的句子集合与顺序已确定，期间新增句子进入下轮；软删除项会从可见安排中移除，句子正文等仍读取最新内容。App 恢复前台、到达 `expires_at` / 非空 `next_round_at` 或收到过期结果时应重新获取队列。
+周期规则：周期天数为 `max(1, ceil(本轮初始安排数 / 100))`，同一句的重复安排分别计数；例如 1041 项为 11 天，1000 项为 10 天。100 是规划依据，**不是每日完成上限**；整轮始终可见，可自由多做、少做或提前完成。北京时间 08:00 为边界。服务端后台自动推进周期，读取队列也会补偿过期状态。提前完成时等到下一个北京时间 08:00 才开启新周期。当前周期的句子集合与顺序已确定，期间新增句子进入下轮；软删除项会从可见安排中移除，句子正文等仍读取最新内容。初始安排数决定的周期长度不随新增、软删除或完成进度变化。App 恢复前台、到达 `expires_at` / 非空 `next_round_at` 或收到过期结果时应重新获取队列。
+
+建议进度只作提醒，沿用以上字段，不增加接口字段：以 `started_at` 到 `expires_at` 的天数为 D，按北京时间 08:00 计算今天为第 d 个学习日（1—D），截至今天建议累计完成 `ceil(review_round.total × d / D)` 项。与 `completed` 比较，显示还差多少或已超前多少；最后一天的建议累计数等于本轮总数。例：1041 项、11 天、第 6 天，建议累计 568 项；实际完成 117 项时还差 451 项。旧的 7 天活动周期只调整 `expires_at`，保留开始时间、安排 ID 和既有进度。
 
 ### GET `/api/english/flow/queue`
 
@@ -497,16 +503,18 @@ Query：`limit: integer = 20`，范围 1—100。
 
 `WordTranslationItem` 有必备 `word: string`、`translation: string`，以及可缺省的 `tip: string`、`source_quote: string`、`translation_quote: string`。后两者分别是英文、中文证据片段。
 
+新生成的 `translation` 和对应 `word_translations[word]` 使用同一条 `本义：…；句中：…；英文：…` 文本。英文部分使用简单英语解释当前句中的词义；不会新增 `english_definition` 响应字段。
+
 ```json
 {
   "items": [{
     "word":"consistent",
-    "translation":"持续的",
+    "translation":"本义：一贯的，持续的；句中：持续的；英文：done regularly in the same way",
     "tip":"在这里形容练习持续、稳定。",
     "source_quote":"consistent practice",
     "translation_quote":"持续的练习"
   }],
-  "word_translations":{"consistent":"持续的"},
+  "word_translations":{"consistent":"本义：一贯的，持续的；句中：持续的；英文：done regularly in the same way"},
   "word_tips":{"consistent":"在这里形容练习持续、稳定。"},
   "word_evidence_required":true,
   "sentence_translation":"进步离不开持续的练习。",

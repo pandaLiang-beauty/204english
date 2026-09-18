@@ -32,6 +32,12 @@ from app.platform.db import get_connection, initialize_database  # noqa: E402
 from scripts.english import evaluate_translation_pipeline  # noqa: E402
 from scripts.english import finalize_translation_evaluation, repair_translation_evaluation
 from scripts.english import reconcile_translation_focus
+from scripts.english import backfill_english_definitions
+from scripts.english.review_round_checks import (
+    check_review_round_length_preserves_progress_without_daily_limits,
+    check_review_round_catch_up_uses_each_snapshot_length,
+    check_review_round_deadline_is_frozen_and_early_completion_still_works,
+)
 
 
 def _decode_json(raw: object, fallback):
@@ -698,8 +704,8 @@ def check_split_translation_pipeline() -> None:
         {"sentence_translation": "人们常常抱怨塑料过于耐用。"},
         {
             "words": [
-                {"word": "plastics", "base_translation": "塑料", "context_translation": "塑料", "source_quote": "plastics", "translation_quote": "塑料", "tip": ""},
-                {"word": "durable", "base_translation": "耐用的", "context_translation": "难以降解的", "source_quote": "too durable", "translation_quote": "过于耐用", "tip": ""},
+                {"word": "plastics", "base_translation": "塑料", "context_translation": "塑料", "english_definition": "artificial materials that can be shaped when soft", "source_quote": "plastics", "translation_quote": "塑料", "tip": ""},
+                {"word": "durable", "base_translation": "耐用的", "context_translation": "难以降解的", "english_definition": "able to last a long time without breaking down", "source_quote": "too durable", "translation_quote": "过于耐用", "tip": ""},
             ],
         },
         {
@@ -734,7 +740,7 @@ def check_split_translation_pipeline() -> None:
         translator._english_ai_options = original_options
     assert len(calls) == 4, len(calls)
     assert result["sentence_translation"] == "人们常常抱怨塑料过于耐用。", result
-    assert result["word_translations"]["durable"].endswith("句中：难以降解的"), result
+    assert result["word_translations"]["durable"] == "本义：耐用的；句中：难以降解的；英文：able to last a long time without breaking down", result
     first_prompt = calls[0][-1]["content"]
     assert "People often complain that plastics are too durable." in first_prompt, first_prompt
     assert "[人们]" not in first_prompt and "**plastics**" not in first_prompt, first_prompt
@@ -869,6 +875,7 @@ def check_split_translation_pipeline() -> None:
                         "word": "durable",
                         "base_translation": "耐用的",
                         "context_translation": "难以降解的",
+                        "english_definition": "able to last a long time without breaking down",
                         "source_quote": "too durable",
                         "tip": "durable = dur + able",
                     }
@@ -886,7 +893,7 @@ def check_split_translation_pipeline() -> None:
         translator._english_ai_options = original_options
     assert word_only_calls == 1, word_only_calls
     assert word_only_result["word_translations"] == {
-        "durable": "本义：耐用的；句中：难以降解的"
+        "durable": "本义：耐用的；句中：难以降解的；英文：able to last a long time without breaking down"
     }, word_only_result
     assert "sentence_translation" not in word_only_result, word_only_result
 
@@ -1066,17 +1073,17 @@ def check_focused_word_card_repairs() -> None:
     approved_translation = "新规则适用。"
     original = {
         "items": [
-            {"word": "rules", "translation": "本义：规则；句中：规则", "source_quote": "rules", "translation_quote": "规则"},
-            {"word": "apply", "translation": "本义：适用；句中：适用", "source_quote": "apply", "translation_quote": "执行"},
+            {"word": "rules", "translation": "本义：规则；句中：规则；英文：instructions about what people may do", "source_quote": "rules", "translation_quote": "规则"},
+            {"word": "apply", "translation": "本义：适用；句中：适用；英文：be relevant to a situation", "source_quote": "apply", "translation_quote": "执行"},
         ],
-        "word_translations": {"rules": "本义：规则；句中：规则", "apply": "本义：适用；句中：适用"},
+        "word_translations": {"rules": "本义：规则；句中：规则；英文：instructions about what people may do", "apply": "本义：适用；句中：适用；英文：be relevant to a situation"},
         "word_tips": {"apply": "旧提示"},
         "word_evidence_required": True,
     }
     repairs = [
         {
-            "items": [{"word": "apply", "translation": "本义：适用；句中：适用", "source_quote": "apply", "translation_quote": quote}],
-            "word_translations": {"apply": "本义：适用；句中：适用"},
+            "items": [{"word": "apply", "translation": "本义：适用；句中：适用；英文：be relevant to a situation", "source_quote": "apply", "translation_quote": quote}],
+            "word_translations": {"apply": "本义：适用；句中：适用；英文：be relevant to a situation"},
             "word_tips": {},
             "word_evidence_required": True,
         }
@@ -1101,6 +1108,140 @@ def check_focused_word_card_repairs() -> None:
         else:
             raise AssertionError("Repeated ungrounded word cards were accepted")
     assert generate.call_count == 3
+
+
+def check_english_word_definitions() -> None:
+    chinese = "本义：平易近人的；句中：平易近人"
+    meaning = chinese + "；英文：friendly and easy to talk to"
+    payload = {"words": [
+        {"word": "approachable", "base_translation": "平易近人的", "context_translation": "平易近人", "english_definition": "英文：friendly and\neasy to talk to", "source_quote": "approachable", "translation_quote": "平易近人"},
+        {"word": "stylish", "base_translation": "时尚的", "context_translation": "时尚的", "source_quote": "stylish", "translation_quote": "时尚"},
+    ]}
+    repaired = {"words": [{**payload["words"][1], "english_definition": "fashionable and attractive in appearance"}]}
+    with patch.object(translator, "_json_from_chat", side_effect=[payload, repaired]) as generate:
+        result = translator.translate_words("She is approachable and stylish.", words=["approachable", "stylish"], sentence_translation="她平易近人又时尚。")
+    assert generate.call_count == 2
+    assert "单词列表：stylish" in generate.call_args.args[0][-1]["content"]
+    assert set(result) == {"items", "word_translations", "word_tips"}, result
+    assert result["word_translations"]["approachable"] == meaning
+    assert result["items"][0]["translation"] == meaning
+    assert set(result["items"][0]) == {"word", "translation", "source_quote", "translation_quote"}
+    assert not translator.word_translation_issues(result, ["approachable", "stylish"], require_english_definition=True)
+
+    legacy = {"word_translations": {"approachable": chinese}}
+    assert not translator.word_translation_issues(legacy, ["approachable"])
+    assert translator.word_translation_issues(legacy, ["approachable"], require_english_definition=True)[0].startswith("missing_word_english_definition:")
+    for invalid in ("", "friendly", "approachable", "friendly and 平易近人", "friendly；英文：easy to talk to"):
+        candidate = {"word_translations": {"approachable": chinese + "；英文：" + invalid}}
+        assert any(issue.startswith("bad_word_english_definition:") for issue in translator.word_translation_issues(candidate, ["approachable"])), invalid
+    assert translator.word_translation_issues({"word_translations": {"approachable": "本义：平易近人的；句中：；英文：friendly and easy to talk to"}}, ["approachable"])[0].startswith("bad_word_translation_format:")
+
+    for word, text, target, original, expected, english in (
+        ("slot", "He uses a slot machine.", "他使用一台老虎机。", "本义：狭槽；句中：老虎机", "用于 slot machine，整体意为老虎机", "part of slot machine, a machine used for gambling"),
+        ("rests", "Good governance rests on an understanding of human worth.", "良好的治理建立在对人的价值的认识之上。", "本义：休息；句中：依赖于", "用于 rest on，表示以……为基础", "used with on to mean being based on something"),
+        ("individual", "the worth of each individual", "每个人的价值", "本义：个人；句中：每个人", "个人（each 表示“每个”）", "a single person"),
+    ):
+        phrase = {"items": [{"word": word, "translation": original + "；英文：" + english}], "word_translations": {}}
+        ground_word_cards(phrase, text, target)
+        assert phrase["word_translations"][word].endswith("；句中：" + expected + "；英文：" + english), phrase
+
+    from app.english.api import EnglishSentencePayload
+
+    original_path = platform_db.DB_PATH
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            platform_db.DB_PATH = Path(temp_dir) / "study.db"
+            initialize_database()
+            initialize_english_schema()
+            old_payload = EnglishSentencePayload(text="She is **approachable**.", word_translations={"approachable": chinese}, sentence_translation="她平易近人。")
+            created = repository.create_sentence(**old_payload.model_dump())
+            assert created["translation_pending"] is False
+            new_payload = old_payload.model_copy(update={"word_translations": {"approachable": meaning}})
+            updated = repository.update_sentence(sentence_id=created["id"], **new_payload.model_dump())
+            assert set(updated) == set(created)
+            assert updated["word_translations"] == {"approachable": meaning}
+            assert updated["sentence_translation"] == created["sentence_translation"]
+            assert updated["translation_pending"] is False
+    finally:
+        platform_db.DB_PATH = original_path
+
+
+def check_legacy_english_definition_backfill() -> None:
+    backfill = backfill_english_definitions
+    original_path = platform_db.DB_PATH
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            platform_db.DB_PATH = Path(temp_dir) / "study.db"
+            initialize_database()
+            initialize_english_schema()
+            chinese = "本义：先前的；以往的；句中：此前的"
+            created = repository.create_sentence(
+                text="**Previous** studies were useful.",
+                word_translations={"Previous": chinese},
+                sentence_translation="此前的研究很有用。",
+                sentence_segments=["Previous studies were useful."],
+                translation_segments=["此前的研究很有用。"],
+            )
+            identifier = created["id"]
+            rows = backfill._load_rows({identifier})
+            card = {"word": "Previous", "source_quote": "Previous studies",
+                    "english_definition": "existing or happening before this time"}
+            payload = {"sentences": [{"id": identifier, "words": [card]}]}
+            validated = backfill._validate_batch(rows, payload)
+            punctuated = {"id": 999, "text": "They prefer **bone-showing.**", "words": {"bone-showing.": "显露骨骼的"}}
+            punctuated_card = {"word": "bone-showing.", "source_quote": "bone-showing",
+                               "english_definition": "so thin that bones are visible"}
+            assert backfill._validate_batch([punctuated], {
+                "sentences": [{"id": 999, "words": [punctuated_card]}]
+            })[999][0]["word"] == "bone-showing."
+            for invalid in (
+                {"sentences": []},
+                {"sentences": [{"id": identifier, "words": [card, card]}]},
+                {"sentences": [{"id": identifier, "words": [{**card, "source_quote": "Previous research"}]}]},
+                {"sentences": [{"id": identifier, "words": [{**card, "english_definition": "earlier"}]}]},
+                {"sentences": [{"id": identifier, "words": [{**card, "english_definition": "existing 在之前"}]}]},
+            ):
+                try:
+                    backfill._validate_batch(rows, invalid)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError("Invalid backfill candidate was accepted")
+
+            # A study event occurring during generation must survive the append.
+            with get_connection() as conn:
+                conn.execute(
+                    "UPDATE english_sentences SET word_play_total = 7, word_play_counts_json = ? WHERE id = ?",
+                    (json.dumps({"Previous": 7}), identifier),
+                )
+                before = dict(conn.execute("SELECT * FROM english_sentences WHERE id = ?", (identifier,)).fetchone())
+            assert backfill._apply_row(rows[0], validated[identifier])
+            with get_connection() as conn:
+                after = dict(conn.execute("SELECT * FROM english_sentences WHERE id = ?", (identifier,)).fetchone())
+            assert all(after[key] == before[key] for key in before if key not in {"word_translations_json", "updated_at"})
+            assert json.loads(after["word_translations_json"]) == {
+                "Previous": chinese + "；英文：" + card["english_definition"]
+            }
+            assert not backfill._apply_row(rows[0], validated[identifier]), "replaying an old result must be harmless"
+            assert backfill._load_rows({identifier}) == []
+
+            # Concurrent edits to Chinese or the source invalidate a generated result.
+            for column, value in (("text", "**Previous** findings were useful."),
+                                  ("sentence_translation", "用户自己修改的整句译文。"),
+                                  ("word_translations_json", json.dumps({"Previous": "用户自己修改的词义"}))):
+                with get_connection() as conn:
+                    conn.execute(
+                        "UPDATE english_sentences SET text = ?, sentence_translation = ?, word_translations_json = ? WHERE id = ?",
+                        (rows[0]["text"], rows[0]["sentence_translation"], rows[0]["word_translations_json"], identifier),
+                    )
+                    conn.execute(f"UPDATE english_sentences SET {column} = ? WHERE id = ?", (value, identifier))
+                assert not backfill._apply_row(rows[0], validated[identifier])
+                with get_connection() as conn:
+                    untouched = dict(conn.execute("SELECT * FROM english_sentences WHERE id = ?", (identifier,)).fetchone())
+                assert untouched[column] == value
+                assert "；英文：" not in untouched["word_translations_json"]
+    finally:
+        platform_db.DB_PATH = original_path
 
 
 def check_edit_translation_invalidation() -> None:
@@ -1653,7 +1794,7 @@ def check_review_queue_includes_audio_optional_sentences_and_freezes_membership(
                 ).fetchone()["count"]
             assert int(item_count) == 3, item_count
 
-            later = repository.create_sentence(text="A new sentence waits for the next seven-day cycle.")
+            later = repository.create_sentence(text="A new sentence waits for the next review cycle.")
             frozen_load = repository.list_sentences(
                 user_id=1,
                 sort="smart",
@@ -1835,6 +1976,8 @@ def check_review_rounds_use_fixed_boundaries_and_catch_up_without_request() -> N
                 )
 
             first = repository.create_sentence(text="Fixed boundary sentence.")
+            with get_connection() as conn:
+                conn.execute("UPDATE english_sentences SET created_at = '2026-08-20T00:00:00+00:00'")
             first_time = datetime(2026, 8, 21, 2, 0, tzinfo=timezone.utc)
             created = repository.advance_due_review_rounds(now=first_time)
             assert created and created[0]["created"] is True, created
@@ -1843,34 +1986,31 @@ def check_review_rounds_use_fixed_boundaries_and_catch_up_without_request() -> N
                     "SELECT * FROM english_review_rounds WHERE status = 'active'"
                 ).fetchone()
             assert round_row["started_at"] == "2026-08-21T00:00:00+00:00", round_row
-            assert round_row["expires_at"] == "2026-08-28T00:00:00+00:00", round_row
+            assert round_row["expires_at"] == "2026-08-22T00:00:00+00:00", round_row
 
             # No request is needed at the boundary: the scheduler entry point
             # catches up and creates the next fixed cycle.
             next_cycle = repository.advance_due_review_rounds(
-                now=datetime(2026, 8, 28, 0, 0, tzinfo=timezone.utc)
+                now=datetime(2026, 8, 22, 0, 0, tzinfo=timezone.utc)
             )
             assert next_cycle and next_cycle[0]["round_id"] != int(round_row["id"]), next_cycle
             with get_connection() as conn:
                 rounds = conn.execute(
                     "SELECT * FROM english_review_rounds ORDER BY id"
                 ).fetchall()
-            assert rounds[-1]["started_at"] == "2026-08-28T00:00:00+00:00", rounds[-1]
-            assert rounds[-1]["expires_at"] == "2026-09-04T00:00:00+00:00", rounds[-1]
+            assert rounds[-1]["started_at"] == "2026-08-22T00:00:00+00:00", rounds[-1]
+            assert rounds[-1]["expires_at"] == "2026-08-23T00:00:00+00:00", rounds[-1]
 
             # A sentence added after the fixed boundary is deferred to the
             # following cycle.
             later = repository.create_sentence(text="Added after boundary.")
             with get_connection() as conn:
                 conn.execute(
-                    "UPDATE english_sentences SET created_at = '2026-09-01T00:00:00+00:00' WHERE id = ?",
+                    "UPDATE english_sentences SET created_at = '2026-08-22T10:00:00+00:00' WHERE id = ?",
                     (int(later["id"]),),
                 )
-                conn.execute(
-                    "UPDATE english_review_rounds SET expires_at = '2026-09-04T00:00:00+00:00' WHERE status = 'active'"
-                )
             following = repository.advance_due_review_rounds(
-                now=datetime(2026, 9, 4, 0, 0, tzinfo=timezone.utc)
+                now=datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc)
             )
             assert following and following[0]["created"] is True, following
             with get_connection() as conn:
@@ -1928,7 +2068,7 @@ def check_review_round_test_expiry_override() -> None:
             assert rounds[0]["expires_at"] == target.isoformat(), rounds[0]
             assert rounds[1]["status"] == "active", rounds[1]
             assert rounds[1]["started_at"] == target.isoformat(), rounds[1]
-            assert rounds[1]["expires_at"] == (target + timedelta(days=7)).isoformat(), rounds[1]
+            assert rounds[1]["expires_at"] == (target + timedelta(days=1)).isoformat(), rounds[1]
 
             unchanged = repository.advance_due_review_rounds(now=target + timedelta(minutes=1))
             assert unchanged and unchanged[0]["created"] is False, unchanged
@@ -1936,7 +2076,7 @@ def check_review_round_test_expiry_override() -> None:
                 active = conn.execute(
                     "SELECT * FROM english_review_rounds WHERE status = 'active'"
                 ).fetchone()
-            assert active["expires_at"] == (target + timedelta(days=7)).isoformat(), active
+            assert active["expires_at"] == (target + timedelta(days=1)).isoformat(), active
     finally:
         for name, value in original_env.items():
             if value is None:
@@ -2085,6 +2225,8 @@ CHECKS = (
     check_translation_focus_reconciliation,
     check_independent_structure_review,
     check_focused_word_card_repairs,
+    check_english_word_definitions,
+    check_legacy_english_definition_backfill,
     check_edit_translation_invalidation,
     check_incremental_focus_word_translation,
     check_startup_translation_recovery_scans_only_pending_sentences,
@@ -2099,6 +2241,9 @@ CHECKS = (
     check_repeated_items_complete_independently_and_wait_until_next_boundary,
     check_review_rounds_use_fixed_boundaries_and_catch_up_without_request,
     check_review_round_test_expiry_override,
+    check_review_round_length_preserves_progress_without_daily_limits,
+    check_review_round_catch_up_uses_each_snapshot_length,
+    check_review_round_deadline_is_frozen_and_early_completion_still_works,
     check_sqlite_review_concurrency_and_stale_audio,
     check_today_passage_keeps_completed_items,
 )

@@ -244,3 +244,27 @@ test('manual completion and sentence-play exposure are serialized independently'
     Object.assign(englishApi, originals)
   }
 })
+
+test('activity refresh preserves full-round pagination after more than 100 completions', async () => {
+  const originals = {
+    stats: englishApi.stats,
+    sentences: englishApi.sentences,
+    reviewSentence: englishApi.reviewSentence
+  }
+  englishApi.stats = async () => ({ active: 710 })
+  englishApi.sentences = async () => ({
+    items: [sentenceRecord()], total: 1041, page: 6,
+    review_round: { id: 11, total: 1041, completed: 117, remaining: 924, available: 1041, available_remaining: 924 }
+  })
+  englishApi.reviewSentence = async () => ({ ...sentenceRecord(0, true), review_round_completed: false })
+  try {
+    const list = useEnglishSentenceList({ isReview: () => true })
+    await list.load()
+    await list.markReviewed(list.sentences.value[0])
+    assert.equal(list.reviewRound.value.completed, 118)
+    assert.equal(list.total.value, 1041)
+    assert.equal(list.pageCount.value, 53)
+  } finally {
+    Object.assign(englishApi, originals)
+  }
+})

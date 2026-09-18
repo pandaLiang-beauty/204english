@@ -47,6 +47,8 @@ SENTENCE_OR_WORD_ISSUE_PREFIXES = (
     "sentence_translation_slash",
     "missing_word_translation:",
     "bad_word_translation_format:",
+    "missing_word_english_definition:",
+    "bad_word_english_definition:",
     "bad_word_evidence:",
     "bad_tip:",
 )
@@ -85,6 +87,7 @@ TRANSLATION_PRECISION_RULES = (
     "\n- 介词和同位复述决定论元关系：`praise X for Y` 是“因 Y 而赞扬 X”，不能把 Y 误作被赞扬对象。`give organizations a basis, a basis for planning to meet the possibilities of ...` 中后一个 a basis 是对前一个 basis 的同位复述，含义是“为规划如何应对可能出现的不同环境提供依据”，不能改成“应对该环境带来的各种可能性”。"
     "\n- 把英文比较结构改成自然的中文主干：`promises ... came much slower` 在承诺语境中是“承诺兑现/落实得慢得多”，不是“承诺来得慢”；`differences are swamped by how well each person encodes` 是“个体差异会被各自的信息编码质量/效果所淹没”，不要硬译成“被……编码得有多好盖过”。`budgeted to the limits of their new two-paycheck status` 是家庭已依靠/按照双收入把预算安排到极限，不是存在一个“双收入状态的极限”。`a weak elderly parent` 用“年迈体弱的父亲或母亲/老人”，不能把 one 写成“一位……的父母”。"
     "\n- 疑问语气要同时看句法和标点。原始材料即使末尾漏了问号，`what is ...`、`how much can ...`、`which of the following ... is ...`、`why did ...` 等直接疑问仍须译成中文问句并补问号；但 `who/which` 引导的关系截句，以及 `How ... is still a mystery` 这类作主语的名词性从句，不是独立问句。"
+    "\n- 抽象名词结构也要译成清楚的中文：`good governance rests on an understanding of the inherent worth of each individual` 表示良好的治理建立在认识到每个人都具有内在价值这一基础上。governance 是治理；rests on 表示以……为基础；inherent worth 是固有的/内在的价值，不必堆成‘内在固有价值’，也不能引申为社会贡献或实用价值。each 表示每个，individual 本身只表示个人/个体。"
 )
 
 SEGMENTATION_CONTRACT = (
@@ -381,12 +384,19 @@ def _compose_word_translation(payload: dict[str, Any]) -> str:
     if not any(marker in base for marker in "()（）"):
         base = "；".join(dict.fromkeys(part.strip() for part in re.split(r"[；;]", base) if part.strip()))
     if base and context:
-        return f"本义：{base}；句中：{context}"
-    if context:
-        return f"句中：{context}"
-    if base:
-        return f"本义：{base}"
-    return existing
+        translation = f"本义：{base}；句中：{context}"
+    elif context:
+        translation = f"句中：{context}"
+    elif base:
+        translation = f"本义：{base}"
+    else:
+        translation = existing
+    # English is part of the existing display string, never a new API field.
+    english = re.sub(r"\s+", " ", str(payload.get("english_definition") or "")).strip()
+    english = re.sub(r"^(?:英文(?:释义|解释)?\s*[:：]\s*)+", "", english).strip()
+    if translation and english:
+        translation = f"{translation.partition('；英文：')[0]}；英文：{english}"
+    return translation
 
 
 def _clean_tip(word: str, tip: str) -> str:
@@ -947,17 +957,19 @@ def _translate_words_only(
                 "role": "user",
                 "content": (
                     "返回 JSON：\n"
-                    '{"words":[{"word":"原词","source_quote":"包含原词的连续英文原文","translation_quote":"逐字摘自中文定稿的连续原文","base_translation":"不带标签的词典义","context_translation":"不带标签的本句一项实际义","tip":""}]}\n'
+                    '{"words":[{"word":"原词","source_quote":"包含原词的连续英文原文","translation_quote":"逐字摘自中文定稿的连续原文","base_translation":"不带标签的词典义","context_translation":"不带标签的本句一项实际义","english_definition":"a short explanation in simple English","tip":""}]}\n'
                     "要求：\n"
                     "1. words 必须与给定列表完全同序、同量，不增删或改写单词拼写。\n"
                     "2. base_translation 是简洁的词典本义（可列 1—2 个常用义），context_translation 是该片段中实际义；两者都要有证据，不能把相近词、词性或不同词形混在一起。若原文词形/搭配疑似截断，词卡仍以给定原词为准，不把它静默改成另一个词。\n"
                     "3. 句中义优先看词性、搭配和指代：fashion models 是“模特”；content 不应凭感觉改成 contentment，但若 `satisfy ... need for rapid content` 这类明显截断搭配只能作最小修复，词卡要保留 content 并注明中性/疑似义；片段不足以判定时选择中性释义。\n"
-                    "4. 不生成 translation 字段，程序会加上“本义：…；句中：…”标签，两个 meaning 字段不得重复这些标签。tip 只有非常确定且有助记忆时才写，20 字以内；禁止音标、重音、音节、泛泛拼读和词源故事，不确定留空。\n\n"
+                    "4. 不生成 translation 字段，程序会加上“本义：…；句中：…；英文：…”标签，各释义字段不得重复这些标签。tip 只有非常确定且有助记忆时才写，20 字以内；禁止音标、重音、音节、泛泛拼读和词源故事，不确定留空。\n\n"
                     "5. source_quote 必须逐字摘自目标英文并包含给定词。若提供中文定稿，先在定稿中定位该词的实际表达，逐字摘录为 translation_quote，再写与之相符的句中义；不另选另一种解释，不把邻近名词的译义张冠李戴。功能词没有独立译词时，引用承载其功能的最短中文短语；不可修改定稿或编造引文。未提供中文定稿时 translation_quote 留空。\n"
                     "6. 本义与句中义都要保持词性和词形：名词不能解释成动作，分词要依据句内语法解释；短语整体的含义不能直接冒充其中每个单词的词义。\n\n"
                     "7. 严格按字段顺序先复制两个引文再解释，不能先编词义再杜撰引文。引文不使用省略号，不拼接分散文字；功能词无法单独摘录时扩大到原定稿完整短语或从句，仍须逐字复制。\n"
                     "8. 句中义只给本句实际采用的一义，不罗列互不相同的候选。若单词只作为固定短语组成部分起作用，写明‘用于[原短语]，整体意为…’，不要误教成这个词单独就有整段含义；例如 slot 不等于老虎机，side 不等于负面的，suit 不等于效仿。\n\n"
                     "9. 中文引文可以包含邻词，但句中义只解释给定词：不能把邻近的否定、数量、比较或中心名词吸入词义。sustainable 即使在 aren't sustainable 中也仍是可持续的，不能释成难以为继；checked-baggage 修饰 fees 时是托运行李的，不是费用。引文包含否定时，仍保持词本身的正反义，另用括号说明整段结构。\n"
+                    "10. english_definition 必填，用约 3—20 个常见英文词解释当前句中的含义，全英文、单行、简洁易懂；不是例句或中文翻译，不只给一个同义词，不用原词循环解释，不列其他无关义项。词性、词形、否定及修饰范围须与句中义一致；固定搭配须说明搭配，不把整段短语义冒充单词义。例如 approachable：friendly and easy to talk to；被动结构中的 perceived：seen or thought of in a particular way。\n"
+                    "11. 本义优先给原词的常见词典义，动词可按原形解释；句中义再解释当前搭配。本义与句中义可以相同，但不能为了迎合句子遗漏常用本义。例如 rests 的本义可写休息、停歇，rests on an understanding 中说明用于 rest on，表示以……为基础，英文可写 used with on to mean being based on something；each individual 中 individual 是个人（a single person），每个来自 each。\n"
                     f"整句翻译已验证的词义规则同样适用于词卡：\n{TRANSLATION_PRECISION_RULES}\n\n"
                     f"{feedback_note}"
                     f"{_reference_context_note(context_before, context_after)}"
@@ -969,7 +981,7 @@ def _translate_words_only(
         ],
         user_message="AI 词义返回格式异常，请重试。",
         diagnostic_label="word translation JSON",
-        expected_schema='{"words":[{"word":"原词","source_quote":"连续英文原文","translation_quote":"连续中文定稿原文","base_translation":"词典义","context_translation":"本句义","tip":""}]}',
+        expected_schema='{"words":[{"word":"原词","source_quote":"连续英文原文","translation_quote":"连续中文定稿原文","base_translation":"词典义","context_translation":"本句义","english_definition":"a short explanation in simple English","tip":""}]}',
     )
     result = _normalize_translation_payload(payload, words)
     ground_word_cards(result, sentence, sentence_translation)
@@ -999,7 +1011,13 @@ def _translate_verified_words(
         context_after=context_after,
     )
     for attempt in range(3):
-        issues = word_translation_issues(result, words, source_text=sentence, sentence_translation=sentence_translation)
+        issues = word_translation_issues(
+            result,
+            words,
+            source_text=sentence,
+            sentence_translation=sentence_translation,
+            require_english_definition=True,
+        )
         if not issues:
             return result
         if attempt == 2:

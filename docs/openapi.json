@@ -2832,14 +2832,14 @@
                       "items": [
                         {
                           "word": "consistent",
-                          "translation": "持续的",
+                          "translation": "本义：一贯的，持续的；句中：持续的；英文：done regularly in the same way",
                           "tip": "在这里形容练习持续、稳定。",
                           "source_quote": "consistent practice",
                           "translation_quote": "持续的练习"
                         }
                       ],
                       "word_translations": {
-                        "consistent": "持续的"
+                        "consistent": "本义：一贯的，持续的；句中：持续的；英文：done regularly in the same way"
                       },
                       "word_tips": {
                         "consistent": "在这里形容练习持续、稳定。"
@@ -2951,7 +2951,7 @@
           }
         },
         "x-backend-operation-id": "translate_english_text_api_english_translate_post",
-        "description": "| 字段 | 类型 | 必填 | 默认/约束 |\n| --- | --- | --- | --- |\n| `text` | string | 是 | 1—12000 字符 |\n| `words` | string[]/null | 否 | `null`；待制词卡的词或短语 |\n| `sentence_id` | integer/null | 否 | `null`；非空 ≥1，仅用于查找邻句上下文 |\n\n```json\n{\n  \"text\":\"Progress depends on **consistent** practice.\",\n  \"words\":[\"consistent\"],\n  \"sentence_id\":1\n}\n```\n\n`words` 省略或为 null 时从 `**…**` 范围中按英文单词提取；短语要完整制卡时请显式传完整短语。传 `[]` 表示不生成词卡，只做整句翻译与分块。服务端修剪词首尾空白/标点、忽略大小写去重，最多处理 40 项；此接口的输入数组本身没有 40 项校验上限。\n\n`sentence_id` 只有在已保存原文与请求 `text` 完全一致时才用于补充有限的邻句上下文；不存在或文本不一致时忽略上下文，不返回 404。翻译源文会移除重点标记和含中文的方括号注释，保留英文原文内容。\n\n返回 `TranslationDraft`：\n\n| 字段 | 类型 | 说明 |\n| --- | --- | --- |\n| `items` | WordTranslationItem[] | 词卡数组 |\n| `word_translations` | object<string,string> | 重点词词义映射 |\n| `word_tips` | object<string,string> | 重点词提示映射 |\n| `word_evidence_required` | boolean | 此结果是否要求词卡带双语证据 |\n| `sentence_translation` | string | 整句中文译文 |\n| `sentence_segments` | string[] | 英文分块 |\n| `translation_segments` | string[] | 中文分块 |\n| `quality_audit` | object | 可扩展的质量诊断，不作为业务状态机 |\n\n`WordTranslationItem` 有必备 `word: string`、`translation: string`，以及可缺省的 `tip: string`、`source_quote: string`、`translation_quote: string`。后两者分别是英文、中文证据片段。\n\n```json\n{\n  \"items\": [{\n    \"word\":\"consistent\",\n    \"translation\":\"持续的\",\n    \"tip\":\"在这里形容练习持续、稳定。\",\n    \"source_quote\":\"consistent practice\",\n    \"translation_quote\":\"持续的练习\"\n  }],\n  \"word_translations\":{\"consistent\":\"持续的\"},\n  \"word_tips\":{\"consistent\":\"在这里形容练习持续、稳定。\"},\n  \"word_evidence_required\":true,\n  \"sentence_translation\":\"进步离不开持续的练习。\",\n  \"sentence_segments\":[\"Progress depends on\",\"consistent practice.\"],\n  \"translation_segments\":[\"进步离不开\",\"持续的练习。\"],\n  \"quality_audit\":{}\n}\n```\n\n若不能安全细分，允许整句只返回一块，不能据此判定生成失败。对历史数据的分块长度不一致情况应回退显示整句。"
+        "description": "| 字段 | 类型 | 必填 | 默认/约束 |\n| --- | --- | --- | --- |\n| `text` | string | 是 | 1—12000 字符 |\n| `words` | string[]/null | 否 | `null`；待制词卡的词或短语 |\n| `sentence_id` | integer/null | 否 | `null`；非空 ≥1，仅用于查找邻句上下文 |\n\n```json\n{\n  \"text\":\"Progress depends on **consistent** practice.\",\n  \"words\":[\"consistent\"],\n  \"sentence_id\":1\n}\n```\n\n`words` 省略或为 null 时从 `**…**` 范围中按英文单词提取；短语要完整制卡时请显式传完整短语。传 `[]` 表示不生成词卡，只做整句翻译与分块。服务端修剪词首尾空白/标点、忽略大小写去重，最多处理 40 项；此接口的输入数组本身没有 40 项校验上限。\n\n`sentence_id` 只有在已保存原文与请求 `text` 完全一致时才用于补充有限的邻句上下文；不存在或文本不一致时忽略上下文，不返回 404。翻译源文会移除重点标记和含中文的方括号注释，保留英文原文内容。\n\n返回 `TranslationDraft`：\n\n| 字段 | 类型 | 说明 |\n| --- | --- | --- |\n| `items` | WordTranslationItem[] | 词卡数组 |\n| `word_translations` | object<string,string> | 重点词词义映射 |\n| `word_tips` | object<string,string> | 重点词提示映射 |\n| `word_evidence_required` | boolean | 此结果是否要求词卡带双语证据 |\n| `sentence_translation` | string | 整句中文译文 |\n| `sentence_segments` | string[] | 英文分块 |\n| `translation_segments` | string[] | 中文分块 |\n| `quality_audit` | object | 可扩展的质量诊断，不作为业务状态机 |\n\n`WordTranslationItem` 有必备 `word: string`、`translation: string`，以及可缺省的 `tip: string`、`source_quote: string`、`translation_quote: string`。后两者分别是英文、中文证据片段。\n\n```json\n{\n  \"items\": [{\n    \"word\":\"consistent\",\n    \"translation\":\"本义：一贯的，持续的；句中：持续的；英文：done regularly in the same way\",\n    \"tip\":\"在这里形容练习持续、稳定。\",\n    \"source_quote\":\"consistent practice\",\n    \"translation_quote\":\"持续的练习\"\n  }],\n  \"word_translations\":{\"consistent\":\"本义：一贯的，持续的；句中：持续的；英文：done regularly in the same way\"},\n  \"word_tips\":{\"consistent\":\"在这里形容练习持续、稳定。\"},\n  \"word_evidence_required\":true,\n  \"sentence_translation\":\"进步离不开持续的练习。\",\n  \"sentence_segments\":[\"Progress depends on\",\"consistent practice.\"],\n  \"translation_segments\":[\"进步离不开\",\"持续的练习。\"],\n  \"quality_audit\":{}\n}\n```\n\n若不能安全细分，允许整句只返回一块，不能据此判定生成失败。对历史数据的分块长度不一致情况应回退显示整句。\n\n重点词释义仍为字符串，新生成内容使用“本义：…；句中：…；英文：…”。英文部分用简单英语解释本句含义，客户端可直接显示整段。历史中文释义仍可读取和保存；不会仅因缺少英文解释而变成 translation_pending。接口字段和类型不变。"
       }
     },
     "/api/english/translate/words": {
@@ -3002,14 +3002,14 @@
                       "items": [
                         {
                           "word": "consistent",
-                          "translation": "持续的",
+                          "translation": "本义：一贯的，持续的；句中：持续的；英文：done regularly in the same way",
                           "tip": "在这里形容练习持续、稳定。",
                           "source_quote": "consistent practice",
                           "translation_quote": "持续的练习"
                         }
                       ],
                       "word_translations": {
-                        "consistent": "持续的"
+                        "consistent": "本义：一贯的，持续的；句中：持续的；英文：done regularly in the same way"
                       },
                       "word_tips": {
                         "consistent": "在这里形容练习持续、稳定。"
@@ -3110,7 +3110,7 @@
           }
         },
         "x-backend-operation-id": "translate_english_words_api_english_translate_words_post",
-        "description": "仅生成词卡，保留客户端已有整句译文。\n\n| 字段 | 类型 | 必填 | 默认/约束 |\n| --- | --- | --- | --- |\n| `text` | string | 是 | 1—12000 字符 |\n| `words` | string[] | 是 | **1—40 项** |\n| `sentence_translation` | string | 否 | `\"\"`，最多 12000 字符；建议提供已确认译文作为依据 |\n| `sentence_id` | integer/null | 否 | `null`，非空 ≥1；上下文规则同上 |\n\n返回 `{items: WordTranslationItem[], word_translations: map, word_tips: map}`，没有整句译文、分块或 `quality_audit` 字段。全部输入词被清理为空时可返回空数组和空映射。\n\n共同错误：未配置翻译服务 `400 {\"detail\":\"English translation AI provider is not configured\"}`；AI 请求或输出校验失败一般 `424`；限额或限流 `429`；参数 `422`。服务端生成可能经过多阶段请求，没有固定完成时长。当前本地前端代理的上游超时为 120 秒，外部代理也可能更早终止；客户端延长超时不能改变代理限制。\n\n保存草稿时将需要的映射、译文和分块合并到完整 `SentenceWrite`，再 POST 创建或 PUT 修改。不要只把 TranslationDraft 原样发送：它没有可写请求中必需的 `text`，且可能只包含本次新词的映射。"
+        "description": "仅生成词卡，保留客户端已有整句译文。\n\n| 字段 | 类型 | 必填 | 默认/约束 |\n| --- | --- | --- | --- |\n| `text` | string | 是 | 1—12000 字符 |\n| `words` | string[] | 是 | **1—40 项** |\n| `sentence_translation` | string | 否 | `\"\"`，最多 12000 字符；建议提供已确认译文作为依据 |\n| `sentence_id` | integer/null | 否 | `null`，非空 ≥1；上下文规则同上 |\n\n返回 `{items: WordTranslationItem[], word_translations: map, word_tips: map}`，没有整句译文、分块或 `quality_audit` 字段。全部输入词被清理为空时可返回空数组和空映射。\n\n共同错误：未配置翻译服务 `400 {\"detail\":\"English translation AI provider is not configured\"}`；AI 请求或输出校验失败一般 `424`；限额或限流 `429`；参数 `422`。服务端生成可能经过多阶段请求，没有固定完成时长。当前本地前端代理的上游超时为 120 秒，外部代理也可能更早终止；客户端延长超时不能改变代理限制。\n\n保存草稿时将需要的映射、译文和分块合并到完整 `SentenceWrite`，再 POST 创建或 PUT 修改。不要只把 TranslationDraft 原样发送：它没有可写请求中必需的 `text`，且可能只包含本次新词的映射。\n\n重点词释义仍为字符串，新生成内容使用“本义：…；句中：…；英文：…”。英文部分用简单英语解释本句含义，客户端可直接显示整段。历史中文释义仍可读取和保存；不会仅因缺少英文解释而变成 translation_pending。接口字段和类型不变。"
       }
     },
     "/api/english/passages": {
@@ -6008,7 +6008,8 @@
             },
             "type": "object",
             "title": "Word Translations",
-            "default": {}
+            "default": {},
+            "description": "重点词释义仍为字符串，新生成内容使用“本义：…；句中：…；英文：…”。英文部分用简单英语解释本句含义，客户端可直接显示整段。历史中文释义仍可读取和保存；不会仅因缺少英文解释而变成 translation_pending。接口字段和类型不变。"
           },
           "word_tips": {
             "additionalProperties": {
@@ -6602,7 +6603,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "重点词词义，未生成的词义为 \"\"。"
+            "description": "重点词释义仍为字符串，新生成内容使用“本义：…；句中：…；英文：…”。英文部分用简单英语解释本句含义，客户端可直接显示整段。历史中文释义仍可读取和保存；不会仅因缺少英文解释而变成 translation_pending。接口字段和类型不变。"
           },
           "word_tips": {
             "type": "object",
@@ -7066,7 +7067,8 @@
             "type": "string"
           },
           "translation": {
-            "type": "string"
+            "type": "string",
+            "description": "与 word_translations[word] 一致的释义字符串；新生成格式：本义：…；句中：…；英文：…。"
           },
           "tip": {
             "type": "string"
@@ -7097,7 +7099,8 @@
             "type": "object",
             "additionalProperties": {
               "type": "string"
-            }
+            },
+            "description": "重点词释义仍为字符串，新生成内容使用“本义：…；句中：…；英文：…”。英文部分用简单英语解释本句含义，客户端可直接显示整段。历史中文释义仍可读取和保存；不会仅因缺少英文解释而变成 translation_pending。接口字段和类型不变。"
           },
           "word_tips": {
             "type": "object",

@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -937,26 +937,24 @@ def advance_due_review_rounds(*, now: datetime | None = None, user_id: int | Non
                     "SELECT * FROM english_sentences WHERE COALESCE(deleted_at, '') = '' ORDER BY id"
                 ).fetchall()
             )
-            if has_history:
-                # The cycle snapshot is defined at its fixed start boundary;
-                # avoid lexical timestamp comparisons because legacy rows may
-                # use SQLite's space-separated timestamp format.
-                snapshot_rows = []
-                for row in rows:
-                    try:
-                        created_at = datetime.fromisoformat(str(row.get("created_at") or ""))
-                    except ValueError:
-                        created_at = None
-                    if created_at is None:
-                        snapshot_rows.append(row)
-                    else:
-                        if created_at.tzinfo is None:
-                            created_at = created_at.replace(tzinfo=timezone.utc)
-                        if created_at.astimezone(timezone.utc) <= boundary:
-                            snapshot_rows.append(row)
-                rows = snapshot_rows
-            ranked_items = _rank_sentences_by_peak_familiarity(rows)
-            schedule = build_review_schedule(ranked_items)
+            dated_rows = [(row, review_rounds._parse(row.get("created_at"))) for row in rows]
+            previous_snapshot = None
+            # Missed cycles may have different lengths as sentences are added.
+            # Resolve their boundaries before persisting the current schedule.
+            while True:
+                snapshot_rows = [
+                    row for row, created_at in dated_rows
+                    if not has_history or created_at is None or created_at <= boundary
+                ]
+                snapshot_ids = tuple(int(row["id"]) for row in snapshot_rows)
+                if snapshot_ids != previous_snapshot:
+                    ranked_items = _rank_sentences_by_peak_familiarity(snapshot_rows)
+                    schedule = build_review_schedule(ranked_items)
+                    previous_snapshot = snapshot_ids
+                next_boundary = boundary + timedelta(days=review_rounds.round_length_days(len(schedule)))
+                if next_boundary > current_now:
+                    break
+                boundary = next_boundary
             current, created = advance_active_round(
                 conn, user_id=user_id, schedule=schedule, now=current_now, start_at=boundary
             )

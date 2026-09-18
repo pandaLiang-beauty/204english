@@ -48,6 +48,10 @@ bash deploy.sh
 引文不合格时只重做对应词卡，最多修复两次，不反复改写已经正确的词卡。
 词卡区分单词、固定短语、邻接修饰语与否定范围；例如 `sustainable` 在否定句中
 仍表示“可持续的”，不能因为整句是否定就反向解释该词。
+重点词释义保留中文本义与句中义，并追加简单英文解释，仍使用原有的字符串字段。
+已有句子的编辑页可通过「生成翻译」补充缺失的英文解释，保留原中文和整句译文，保存后生效。
+2026-09-15 已[补齐现有 710 句、2333 个重点词的英文解释](docs/english-definitions-backfill-20260915.md)，刷新即可查看。
+上线状态和真实接口示例见 [DeepSeek 中英文释义上线记录](docs/deepseek-bilingual-release-20260915.md)。
 
 从项目根目录运行可复现的随机只读评测：
 
@@ -69,6 +73,10 @@ bash deploy.sh
 当作标准答案。修改流水线后应创建新报告，避免混合不同版本的结果。
 
 本次模型切换及逐句复核结果见 [DeepSeek Flash 翻译实测记录](docs/translation-flash-evaluation.md)。
+九款 Gemini 与当前 DeepSeek 的同题对比、追加样本及完整流程结果见
+[2026-09-15 翻译模型对比](docs/translation-model-comparison-20260915.md)。该轮评测未切换线上模型。
+进一步的 [Gemini 3.7 与 DeepSeek 100 句对照](docs/translation-gemini-37-100-20260915.md)
+已覆盖全部译文与 678 张中英文词卡；当前线上仍使用 DeepSeek。
 
 ### 全量重译与审校
 

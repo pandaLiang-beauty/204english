@@ -114,7 +114,7 @@ test('adding a focus marker requests meanings only for newly unfilled words', as
     sentence_translation: '一个已知词和一个新词。',
     sentence_segments: ['A known and new word.'],
     translation_segments: ['一个已知词和一个新词。'],
-    word_translations: { known: '本义：知道；句中：已知的' },
+    word_translations: { known: '本义：知道；句中：已知的；英文：already familiar to someone' },
     word_tips: { known: 'know 的过去分词' }
   }
   const wordRequests = []
@@ -153,11 +153,11 @@ test('adding a focus marker requests meanings only for newly unfilled words', as
     assert.equal(sentence.ui.editDraft.sentenceTranslation, initial.sentence_translation)
     assert.equal(sentence.ui.editDraft.sentenceSegmentsText, 'A known and new word.')
     assert.equal(sentence.ui.editDraft.translationSegmentsText, '一个已知词和一个新词。')
-    assert.match(sentence.ui.editDraft.translationsText, /^known=本义：知道；句中：已知的$/m)
+    assert.match(sentence.ui.editDraft.translationsText, /^known=本义：知道；句中：已知的；英文：already familiar to someone$/m)
     assert.match(sentence.ui.editDraft.translationsText, /^new=本义：新的；句中：新出现的$/m)
     assert.match(sentence.ui.editDraft.tipsText, /^known=know 的过去分词$/m)
     assert.match(sentence.ui.editDraft.tipsText, /^new=常与名词连用$/m)
-    assert.match(sentence.ui.message, /已补充 1 个新增重点词释义/)
+    assert.match(sentence.ui.message, /已补充 1 个重点词释义（含英文解释）/)
   } finally {
     Object.assign(englishApi, originals)
   }

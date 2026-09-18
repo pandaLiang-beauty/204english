@@ -202,7 +202,7 @@ export function useEnglishSentenceList(context = {}) {
     } else {
       stats.value = await statsRequest
     }
-    total.value = Number(stats.value?.active || total.value || 0)
+    if (!reviewRound.value) total.value = Number(stats.value?.active || total.value || 0)
   }
 
   async function load(options = {}) {
@@ -416,9 +416,9 @@ export function useEnglishSentenceList(context = {}) {
         translationSourceKey(text) === translationSourceKey(sentence.text)
         && Boolean(String(editDraft?.sentenceTranslation || '').trim())
       )
-      const missingWords = missingMarkedWords(editDraft)
+      const missingWords = missingMarkedWords(editDraft, { includeMissingEnglish: true })
       if (sourceUnchanged && !missingWords.length) {
-        sentence.ui.message = '整句译文和重点词释义均已存在'
+        sentence.ui.message = '整句译文和重点词中英文释义均已存在'
         return
       }
       const wordsOnly = sourceUnchanged && missingWords.length > 0
@@ -433,7 +433,7 @@ export function useEnglishSentenceList(context = {}) {
         ? applyWordTranslationsToDraft(sentence.ui.editDraft, result)
         : applyTranslationToDraft(sentence.ui.editDraft, result)
       sentence.ui.message = wordsOnly
-        ? `已补充 ${missingWords.length} 个新增重点词释义，保存后生效`
+        ? `已补充 ${missingWords.length} 个重点词释义（含英文解释），保存后生效`
         : '已生成翻译，保存后生效'
     } catch (err) {
       sentence.ui.message = err?.message || '生成翻译失败'
