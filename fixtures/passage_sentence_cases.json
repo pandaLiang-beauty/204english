@@ -1,0 +1,38 @@
+[
+  {
+    "name": "decimal and U.S. regressions",
+    "text": "The typical **CEO** now makes about $18.9 million a year. Employers are **hiring** more graduates for jobs in the U.S. this year than last.",
+    "sentences": ["The typical **CEO** now makes about $18.9 million a year.", "Employers are **hiring** more graduates for jobs in the U.S. this year than last."],
+    "candidates": ["The typical **CEO** now makes about $18.9 million a year.", "Employers are **hiring** more graduates for jobs in the U.S. this year than last."]
+  },
+  {
+    "name": "titles, initials and initialism at a sentence boundary",
+    "text": "Dr. J. K. Smith **works** at the U.S. Department of Energy. He lives in the U.S. The **next** study is ready.",
+    "sentences": ["Dr. J. K. Smith **works** at the U.S. Department of Energy.", "He lives in the U.S.", "The **next** study is ready."],
+    "candidates": ["Dr. J. K. Smith **works** at the U.S. Department of Energy.", "The **next** study is ready."]
+  },
+  {
+    "name": "abbreviations, references, dates and decimal without a leading zero",
+    "text": "Ms. Brown **arrives** at 9 a.m. on Jan. 5. See Fig. 2, e.g. the **rate** of .5 vs. 1.25 in No. 3. It includes A, B, etc. Next **comes** C.",
+    "sentences": ["Ms. Brown **arrives** at 9 a.m. on Jan. 5.", "See Fig. 2, e.g. the **rate** of .5 vs. 1.25 in No. 3.", "It includes A, B, etc.", "Next **comes** C."],
+    "candidates": ["Ms. Brown **arrives** at 9 a.m. on Jan. 5.", "See Fig. 2, e.g. the **rate** of .5 vs. 1.25 in No. 3.", "Next **comes** C."]
+  },
+  {
+    "name": "quotes, brackets, punctuation and bold closing markers",
+    "text": "She said, “It is **ready**.” Then **left**! (Is it **true**?) **Yes.** “Wait!” she **called**. The **pause** was long... but useful.",
+    "sentences": ["She said, “It is **ready**.”", "Then **left**!", "(Is it **true**?)", "**Yes.**", "“Wait!” she **called**.", "The **pause** was long... but useful."],
+    "candidates": ["She said, “It is **ready**.”", "Then **left**!", "(Is it **true**?)", "**Yes.**", "“Wait!” she **called**.", "The **pause** was long... but useful."]
+  },
+  {
+    "name": "paragraphs, line endings, marked abbreviations and repeated candidates",
+    "text": "An **unfinished** paragraph\r\n\r\nThe **U.S.** economy\nkeeps growing.\n \nAn **unfinished** paragraph\n\nOnly plain text.",
+    "sentences": ["An **unfinished** paragraph", "The **U.S.** economy keeps growing.", "An **unfinished** paragraph", "Only plain text."],
+    "candidates": ["An **unfinished** paragraph", "The **U.S.** economy keeps growing."]
+  },
+  {
+    "name": "domains and Chinese punctuation",
+    "text": "Visit example.com to **learn** more. 中文**focus**。下一句！",
+    "sentences": ["Visit example.com to **learn** more.", "中文**focus**。", "下一句！"],
+    "candidates": ["Visit example.com to **learn** more.", "中文**focus**。"]
+  }
+]

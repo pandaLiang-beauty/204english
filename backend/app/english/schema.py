@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ..platform.db import _ensure_column, get_connection
+from .word_play_history import reconcile_word_play_totals
 
 
 SCHEMA_SQL = """
@@ -278,3 +279,4 @@ def initialize_schema() -> None:
         _ensure_sentence_audio_columns(conn)
         _ensure_sentence_translation_columns(conn)
         _ensure_passage_columns(conn)
+        reconcile_word_play_totals(conn)

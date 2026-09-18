@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.english.schema import initialize_schema as initialize_english_schema  # noqa: E402
+from app.english.word_play_history import reconcile_word_play_totals  # noqa: E402
 from app.platform.db import DATA_DIR, get_connection, initialize_database  # noqa: E402
 
 
@@ -117,7 +118,7 @@ def _import_rows(rows: list[sqlite3.Row]) -> int:
                     audio_error = excluded.audio_error,
                     audio_generated_at = excluded.audio_generated_at,
                     review_count = excluded.review_count,
-                    word_play_total = excluded.word_play_total,
+                    word_play_total = MAX(english_sentences.word_play_total, excluded.word_play_total),
                     sentence_translation = excluded.sentence_translation,
                     deleted_at = excluded.deleted_at,
                     created_at = excluded.created_at,
@@ -144,6 +145,7 @@ def _import_rows(rows: list[sqlite3.Row]) -> int:
                     str(row["updated_at"] or ""),
                 ),
             )
+        reconcile_word_play_totals(conn)
     return len(rows)
 
 

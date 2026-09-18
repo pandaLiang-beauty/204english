@@ -1,5 +1,6 @@
 import { englishApi } from './api.js'
 import { sentenceInstanceKey } from './sentencePresentation.js'
+import { mergeReviewRoundState } from './reviewRoundState.js'
 
 /**
  * Serializes review writes for each sentence instance.
@@ -37,35 +38,41 @@ export function createReviewEventQueue({
     if (!current) return undefined
     queue.latestSentence = current
     try {
-      const wasRoundCompleted = Boolean(current.review_round_item_completed)
-      const wasWholeRoundCompleted = Boolean(current.review_round_completed)
+      const isCurrentRound = () => Boolean(event.roundId && Number(reviewRound.value?.id) === event.roundId)
       const updated = await englishApi.reviewSentence(queue.sentenceId, {
         event_type: event.eventType,
         complete_round_item: event.completeRound,
         round_item_id: event.roundItemId || undefined
       })
       if (updated.review_round_expired) {
-        await onRoundExpired?.()
+        if (isCurrentRound()) await onRoundExpired?.()
         return updated
       }
-      const completedThisWrite = !wasRoundCompleted && Boolean(updated.review_round_item_completed)
+      const fresh = currentQueuedSentence(queue, current)
+      const wasRoundCompleted = Boolean(fresh.review_round_item_completed)
+      const itemCompleted = Boolean(updated.review_round_item_is_completed ?? updated.review_round_item_completed)
+      const completedThisWrite = !wasRoundCompleted && itemCompleted
       const decorated = updateSentenceInList({
         ...updated,
-        review_round_item_completed: wasRoundCompleted || Boolean(updated.review_round_item_completed),
-        review_round_completed: wasWholeRoundCompleted || Boolean(updated.review_round_completed)
-      }, current)
+        review_round_item_completed: itemCompleted,
+        review_round_completed: Boolean(updated.review_round_completed)
+      }, fresh, { scope: 'review' })
       queue.latestSentence = decorated
-      if (completedThisWrite && reviewRound.value) {
+      const summary = updated.review_round
+      if (isCurrentRound() && Number(summary?.id) === event.roundId) {
+        reviewRound.value = mergeReviewRoundState(reviewRound.value, summary)
+      } else if (completedThisWrite && isCurrentRound() && !summary) {
         reviewRound.value = {
           ...reviewRound.value,
           completed: Math.min(Number(reviewRound.value.completed || 0) + 1, Number(reviewRound.value.total || 0)),
-          remaining: Math.max(Number(reviewRound.value.remaining || 0) - 1, 0)
+          remaining: Math.max(Number(reviewRound.value.remaining || 0) - 1, 0),
+          available_remaining: Math.max(Number(reviewRound.value.available_remaining ?? reviewRound.value.remaining ?? 0) - 1, 0)
         }
       }
       if (!event.silentMessage) decorated.ui.message = '已记录复习'
       audioControls()?.advancePreloadWindowFromSentence?.(decorated)
       await refreshActivity()
-      if (decorated.review_round_completed) onRoundCompleted?.(updated)
+      if (isCurrentRound() && (!summary || Number(summary.id) === event.roundId) && decorated.review_round_completed) onRoundCompleted?.(updated)
       return decorated
     } catch (err) {
       const fresh = currentQueuedSentence(queue, current)
@@ -116,6 +123,7 @@ export function createReviewEventQueue({
         eventType,
         completeRound: options.completeRound !== false,
         roundItemId: Number(sentence.review_round_item_id || 0),
+        roundId: Number(reviewRound.value?.id || 0),
         silentMessage: Boolean(options.silentMessage),
         resolve
       })

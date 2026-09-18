@@ -1994,7 +1994,8 @@
                               ]
                             },
                             "fatigue_adjusted_score": 0.977018
-                          }
+                          },
+                          "focus_word_play_total": 0
                         },
                         {
                           "id": 2,
@@ -2071,7 +2072,8 @@
                               ]
                             },
                             "fatigue_adjusted_score": 0.857018
-                          }
+                          },
+                          "focus_word_play_total": 0
                         }
                       ],
                       "total": 2,
@@ -2171,7 +2173,8 @@
                           "review_repeat_index": 1,
                           "review_repeat_total": 1,
                           "review_exposure": 0.0,
-                          "review_round_item_completed": false
+                          "review_round_item_completed": false,
+                          "focus_word_play_total": 0
                         },
                         {
                           "id": 2,
@@ -2254,7 +2257,8 @@
                           "review_repeat_index": 1,
                           "review_repeat_total": 1,
                           "review_exposure": 0.0,
-                          "review_round_item_completed": false
+                          "review_round_item_completed": false,
+                          "focus_word_play_total": 0
                         }
                       ],
                       "total": 2,
@@ -2417,7 +2421,8 @@
                       "completion_count": 0,
                       "deleted_at": "",
                       "created_at": "2026-09-13T06:33:09.992859+00:00",
-                      "updated_at": "2026-09-13T06:33:09.992859+00:00"
+                      "updated_at": "2026-09-13T06:33:09.992859+00:00",
+                      "focus_word_play_total": 0
                     }
                   }
                 }
@@ -2649,7 +2654,8 @@
                           "review_repeat_index": 1,
                           "review_repeat_total": 1,
                           "review_exposure": 0.0,
-                          "review_round_item_completed": true
+                          "review_round_item_completed": true,
+                          "focus_word_play_total": 1
                         },
                         {
                           "id": 2,
@@ -2732,7 +2738,8 @@
                           "review_repeat_index": 1,
                           "review_repeat_total": 1,
                           "review_exposure": 0.0,
-                          "review_round_item_completed": false
+                          "review_round_item_completed": false,
+                          "focus_word_play_total": 0
                         }
                       ],
                       "total": 2,
@@ -3946,7 +3953,8 @@
                           "completion_count": 1,
                           "deleted_at": "",
                           "created_at": "2026-09-13T06:33:09.992859+00:00",
-                          "updated_at": "2026-09-13T06:33:10.260062+00:00"
+                          "updated_at": "2026-09-13T06:33:10.260062+00:00",
+                          "focus_word_play_total": 1
                         },
                         {
                           "id": 3,
@@ -3982,7 +3990,8 @@
                           "completion_count": 0,
                           "deleted_at": "",
                           "created_at": "2026-09-13T06:33:10.260062+00:00",
-                          "updated_at": "2026-09-13T06:33:10.260062+00:00"
+                          "updated_at": "2026-09-13T06:33:10.260062+00:00",
+                          "focus_word_play_total": 0
                         }
                       ],
                       "inserted": 1,
@@ -4231,7 +4240,8 @@
                       "completion_count": 0,
                       "deleted_at": "",
                       "created_at": "2026-09-13T06:33:09.992859+00:00",
-                      "updated_at": "2026-09-13T06:33:09.992859+00:00"
+                      "updated_at": "2026-09-13T06:33:09.992859+00:00",
+                      "focus_word_play_total": 0
                     }
                   },
                   "readyAudio": {
@@ -4282,7 +4292,8 @@
                       "completion_count": 1,
                       "deleted_at": "",
                       "created_at": "2026-09-13T06:33:09.992859+00:00",
-                      "updated_at": "2026-09-13T06:33:10.165552+00:00"
+                      "updated_at": "2026-09-13T06:33:10.165552+00:00",
+                      "focus_word_play_total": 1
                     }
                   }
                 }
@@ -4430,7 +4441,8 @@
                       "completion_count": 0,
                       "deleted_at": "",
                       "created_at": "2026-09-13T06:33:09.992859+00:00",
-                      "updated_at": "2026-09-13T06:33:10.010934+00:00"
+                      "updated_at": "2026-09-13T06:33:10.010934+00:00",
+                      "focus_word_play_total": 0
                     }
                   }
                 }
@@ -4694,7 +4706,8 @@
                           "completion_count": 0,
                           "deleted_at": "",
                           "created_at": "2026-09-13T06:33:09.992859+00:00",
-                          "updated_at": "2026-09-13T06:33:10.023405+00:00"
+                          "updated_at": "2026-09-13T06:33:10.023405+00:00",
+                          "focus_word_play_total": 0
                         },
                         {
                           "id": 2,
@@ -4730,7 +4743,8 @@
                           "completion_count": 0,
                           "deleted_at": "",
                           "created_at": "2026-09-13T06:33:10.024605+00:00",
-                          "updated_at": "2026-09-13T06:33:10.024605+00:00"
+                          "updated_at": "2026-09-13T06:33:10.024605+00:00",
+                          "focus_word_play_total": 0
                         }
                       ],
                       "created": 1,
@@ -4892,7 +4906,8 @@
                       "completion_count": 1,
                       "deleted_at": "",
                       "created_at": "2026-09-13T06:33:09.992859+00:00",
-                      "updated_at": "2026-09-13T06:33:10.165552+00:00"
+                      "updated_at": "2026-09-13T06:33:10.165552+00:00",
+                      "focus_word_play_total": 1
                     }
                   }
                 }
@@ -5073,7 +5088,22 @@
                       "review_round_completed": false,
                       "review_round_expired": false,
                       "review_round_item_id": 1,
-                      "review_round_next_at": ""
+                      "review_round_next_at": "",
+                      "focus_word_play_total": 0,
+                      "review_round": {
+                        "id": 1,
+                        "started_at": "2026-09-13T00:00:00+00:00",
+                        "expires_at": "2026-09-20T00:00:00+00:00",
+                        "completed": 1,
+                        "total": 2,
+                        "remaining": 1,
+                        "is_completed": false,
+                        "next_round_at": "",
+                        "available": 2,
+                        "available_remaining": 1
+                      },
+                      "review_round_id": 1,
+                      "review_round_item_is_completed": true
                     }
                   },
                   "playback": {
@@ -5124,7 +5154,10 @@
                       "review_round_completed": false,
                       "review_round_expired": false,
                       "review_round_item_id": 1,
-                      "review_round_next_at": ""
+                      "review_round_next_at": "",
+                      "focus_word_play_total": 0,
+                      "review_round": null,
+                      "review_round_id": null
                     }
                   },
                   "alreadyCompleted": {
@@ -5175,7 +5208,22 @@
                       "review_round_completed": false,
                       "review_round_expired": false,
                       "review_round_item_id": 1,
-                      "review_round_next_at": ""
+                      "review_round_next_at": "",
+                      "focus_word_play_total": 0,
+                      "review_round": {
+                        "id": 1,
+                        "started_at": "2026-09-13T00:00:00+00:00",
+                        "expires_at": "2026-09-20T00:00:00+00:00",
+                        "completed": 1,
+                        "total": 2,
+                        "remaining": 1,
+                        "is_completed": false,
+                        "next_round_at": "",
+                        "available": 2,
+                        "available_remaining": 1
+                      },
+                      "review_round_id": 1,
+                      "review_round_item_is_completed": true
                     }
                   }
                 }
@@ -5230,7 +5278,7 @@
           }
         },
         "x-backend-operation-id": "review_english_sentence_api_english_sentences__sentence_id__review_post",
-        "description": "同一个接口处理两种不同事件，Android 应始终发送明确请求体。\n\n| 字段 | 类型 | 默认 | 说明 |\n| --- | --- | --- | --- |\n| `event_type` | string | `sentence_review` | `sentence_play` 播放；`sentence_review` 完成复习 |\n| `complete_round_item` | boolean | `true` | 完成模式是否提交安排完成 |\n| `round_item_id` | integer/null | `null` | 非空时 ≥1；取自队列的 `review_round_item_id` |\n\n整句音频实际开始播放后，上报一次：\n\n```json\n{\n  \"event_type\": \"sentence_play\",\n  \"complete_round_item\": false,\n  \"round_item_id\": 101\n}\n```\n\n用户点击“完成这次复习”后：\n\n```json\n{\n  \"event_type\": \"sentence_review\",\n  \"complete_round_item\": true,\n  \"round_item_id\": 101\n}\n```\n\n| 事件 | 整句播放计数 | 完成计数 | 安排完成状态 |\n| --- | --- | --- | --- |\n| `sentence_play` | +1 | 不变 | 不变，即使误传 `complete_round_item=true` |\n| `sentence_review` 且完成成功 | 不变 | +1 | 完成指定安排 |\n| `sentence_review` 且 `complete_round_item=false` | 不变 | 不变 | 不变 |\n| 重复完成同一安排 | 不变 | 不变 | 保持已完成 |\n\n返回 `Sentence`，再增加：\n\n| 字段 | 类型 | 含义 |\n| --- | --- | --- |\n| `review_round_item_completed` | boolean | **本次请求是否新完成一个安排**，与队列里同名字段的含义不同 |\n| `review_round_completed` | boolean | 本次成功完成后，本轮是否全部完成 |\n| `review_round_expired` | boolean | 本次尝试完成时发现当前周期已过期 |\n| `review_round_item_id` | integer/null | 完成的安排 ID，或回显传入 ID；无 ID 时可能为 null |\n| `review_round_next_at` | string | 本次完成整轮后给出的下轮时间，否则 `\"\"` |\n\n重复完成、安排 ID 与句子不匹配、旧安排不属于当前轮等情况可能是 **200 + `review_round_item_completed=false`**。不能把 200 或 ID 回显当作完成成功，也不能把 false 当作服务端把已完成安排撤回；请刷新队列确认。\n\n请求体缺省、`null` 或 `{}` 会默认尝试完成；不传安排 ID 会选择该句当前最早未完成安排。未知 `event_type` 会被当作 `sentence_review`。为避免完成错误安排，客户端始终传合法枚举、明确布尔值及原安排 ID。\n\n句子不存在返回 `404`。播放事件不去重，不能在超时后无条件重发；完成请求携带相同安排 ID 可防止重复计数，但跨轮仍需重新核对。"
+        "description": "同一个接口处理两种不同事件，Android 应始终发送明确请求体。\n\n| 字段 | 类型 | 默认 | 说明 |\n| --- | --- | --- | --- |\n| `event_type` | string | `sentence_review` | `sentence_play` 播放；`sentence_review` 完成复习 |\n| `complete_round_item` | boolean | `true` | 完成模式是否提交安排完成 |\n| `round_item_id` | integer/null | `null` | 非空时 ≥1；取自队列的 `review_round_item_id` |\n\n整句音频实际开始播放后，上报一次：\n\n```json\n{\n  \"event_type\": \"sentence_play\",\n  \"complete_round_item\": false,\n  \"round_item_id\": 101\n}\n```\n\n用户点击“完成这次复习”后：\n\n```json\n{\n  \"event_type\": \"sentence_review\",\n  \"complete_round_item\": true,\n  \"round_item_id\": 101\n}\n```\n\n| 事件 | 整句播放计数 | 完成计数 | 安排完成状态 |\n| --- | --- | --- | --- |\n| `sentence_play` | +1 | 不变 | 不变，即使误传 `complete_round_item=true` |\n| `sentence_review` 且完成成功 | 不变 | +1 | 完成指定安排 |\n| `sentence_review` 且 `complete_round_item=false` | 不变 | 不变 | 不变 |\n| 重复完成同一安排 | 不变 | 不变 | 保持已完成 |\n\n返回 `Sentence`，再增加：\n\n| 字段 | 类型 | 含义 |\n| --- | --- | --- |\n| `review_round_item_completed` | boolean | **本次请求是否新完成一个安排**，与队列里同名字段的含义不同 |\n| `review_round_item_is_completed` | boolean/缺省 | 完成请求对应安排的真实状态；重复提交已完成安排仍为 true。播放事件不返回此字段 |\n| `review_round` | object/null | 完成请求后的周期进度快照，字段同队列的 `review_round`，但不含 `resume_page`；无法确定时为 null |\n| `review_round_id` | integer/null | 本次核对的周期 ID |\n| `review_round_completed` | boolean | 完成请求核对后，本轮是否全部完成；重复提交也返回真实状态 |\n| `review_round_expired` | boolean | 本次尝试完成时周期已过期，或指定安排已不属于当前周期 |\n| `review_round_item_id` | integer/null | 完成的安排 ID，或回显传入 ID；无 ID 时可能为 null |\n| `review_round_next_at` | string | 整轮已完成时的下轮时间；重试不会推迟它，否则 `\"\"` |\n\n重复完成仍可能是 **200 + `review_round_item_completed=false`**，此时用 `review_round_item_is_completed` 和 `review_round` 恢复真实完成状态及累计进度。只有响应周期 ID 与当前页面周期一致时才能合并；同周期乱序响应不能回退已知完成数。`review_round_expired=true` 或新状态字段缺失时刷新队列，不能仅凭 200 或 ID 回显判断成功。\n\n请求体缺省、`null` 或 `{}` 会默认尝试完成；不传安排 ID 会选择该句当前最早未完成安排。未知 `event_type` 会被当作 `sentence_review`。为避免完成错误安排，客户端始终传合法枚举、明确布尔值及原安排 ID。\n\n句子不存在返回 `404`。播放事件不去重，不能在超时后无条件重发；完成请求携带相同安排 ID 可防止重复计数，但跨轮仍需重新核对。"
       }
     },
     "/api/english/sentences/{sentence_id}/words/{word}/play": {
@@ -5317,7 +5365,8 @@
                       "completion_count": 1,
                       "deleted_at": "",
                       "created_at": "2026-09-13T06:33:09.992859+00:00",
-                      "updated_at": "2026-09-13T06:33:10.089155+00:00"
+                      "updated_at": "2026-09-13T06:33:10.089155+00:00",
+                      "focus_word_play_total": 1
                     }
                   }
                 }
@@ -5479,7 +5528,8 @@
                       "completion_count": 1,
                       "deleted_at": "",
                       "created_at": "2026-09-13T06:33:09.992859+00:00",
-                      "updated_at": "2026-09-13T06:33:10.105206+00:00"
+                      "updated_at": "2026-09-13T06:33:10.105206+00:00",
+                      "focus_word_play_total": 1
                     }
                   }
                 }
@@ -6623,7 +6673,7 @@
           "word_play_total": {
             "type": "integer",
             "format": "int64",
-            "description": "当前保留词播放计数总和。"
+            "description": "历史词音播放累计；取消重点词或删除句子不减少累计统计。"
           },
           "sentence_translation": {
             "type": "string",
@@ -6753,6 +6803,11 @@
           "algorithm": {
             "$ref": "#/components/schemas/ReviewAlgorithm",
             "description": "智能排序时提供，可缺省。"
+          },
+          "focus_word_play_total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "当前重点词的播放计数总和；排序仍使用当前重点词计数。"
           }
         },
         "required": [
@@ -6787,7 +6842,8 @@
           "completion_count",
           "deleted_at",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "focus_word_play_total"
         ],
         "additionalProperties": true
       },
@@ -7001,11 +7057,11 @@
               },
               "review_round_completed": {
                 "type": "boolean",
-                "description": "本次完成后本轮是否已完成。"
+                "description": "完成请求核对后，本轮是否全部完成；重复提交也返回真实状态。"
               },
               "review_round_expired": {
                 "type": "boolean",
-                "description": "本次完成发现当前轮已过期。"
+                "description": "周期已过期，或指定安排已不属于当前周期。"
               },
               "review_round_item_id": {
                 "anyOf": [
@@ -7021,7 +7077,32 @@
               },
               "review_round_next_at": {
                 "type": "string",
-                "description": "本次完成整轮时给出的下轮时间，否则为空。"
+                "description": "整轮已完成时的下轮开始时间，重试不会推迟；否则为空。"
+              },
+              "review_round_item_is_completed": {
+                "type": "boolean",
+                "description": "完成请求对应安排的真实状态，重复完成仍为 true；播放事件不返回此字段。"
+              },
+              "review_round": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ReviewRoundProgress"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "review_round_id": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -7029,7 +7110,9 @@
               "review_round_completed",
               "review_round_expired",
               "review_round_item_id",
-              "review_round_next_at"
+              "review_round_next_at",
+              "review_round",
+              "review_round_id"
             ],
             "additionalProperties": true
           }
@@ -7917,6 +8000,70 @@
             "additionalProperties": true
           }
         ]
+      },
+      "ReviewRoundProgress": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "复习周期 ID。"
+          },
+          "started_at": {
+            "type": "string",
+            "description": "UTC 时间；历史值可能是 SQLite 日期格式，未设置时为空字符串。"
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "UTC 时间；历史值可能是 SQLite 日期格式，未设置时为空字符串。"
+          },
+          "completed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "已完成安排数。"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "未删除句子的安排数，不是不同句子数。"
+          },
+          "remaining": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "is_completed": {
+            "type": "boolean",
+            "description": "空周期为 false。"
+          },
+          "next_round_at": {
+            "type": "string",
+            "description": "提前完成时的下轮开始时间，否则为空。"
+          },
+          "available": {
+            "type": "integer",
+            "format": "int64",
+            "description": "当前与 total 相同。"
+          },
+          "available_remaining": {
+            "type": "integer",
+            "format": "int64",
+            "description": "当前与 remaining 相同。"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "expires_at",
+          "completed",
+          "total",
+          "remaining",
+          "is_completed",
+          "next_round_at",
+          "available",
+          "available_remaining"
+        ],
+        "additionalProperties": true,
+        "description": "完成请求后的周期进度快照，不包含分页信息。仅可合并与当前页面周期 ID 一致的响应。"
       }
     },
     "securitySchemes": {

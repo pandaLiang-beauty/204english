@@ -35,6 +35,8 @@ from .review_rounds import (
     queue_state,
 )
 from .stats import review_heatmap, stats
+from .word_play_history import lifetime_word_total
+from .sentence_boundaries import split_marked_passage_sentences as _split_marked_passage_sentences
 
 
 ENGLISH_DATA_DIR = DATA_DIR / "english"
@@ -715,6 +717,7 @@ def serialize_sentence(
         "word_tips": tips,
         "word_play_counts": counts,
         "word_play_total": _safe_int(row.get("word_play_total")),
+        "focus_word_play_total": _calculate_word_total(counts),
         "sentence_translation": row.get("sentence_translation") or "",
         "sentence_segments": sentence_segments,
         "translation_segments": translation_segments,
@@ -888,7 +891,7 @@ def list_sentences(
         start = (page - 1) * page_size
         items = [serialize_list_sentence(row) for row in rows[start : start + page_size]]
     else:
-        rows.sort(key=lambda row: (_safe_int(row.get("review_count")), _safe_int(row.get("word_play_total")), int(row["id"])))
+        rows.sort(key=lambda row: (_safe_int(row.get("review_count")), _calculate_word_total(_normalize_dict(row.get("word_play_counts_json"))), int(row["id"])))
         start = (page - 1) * page_size
         items = [serialize_list_sentence(row) for row in rows[start : start + page_size]]
     return {
@@ -1129,7 +1132,7 @@ def reconcile_sentence_focus_state() -> int:
                 translations == current_translations
                 and tips == current_tips
                 and counts == current_counts
-                and _calculate_word_total(counts) == _safe_int(row.get("word_play_total"))
+                and lifetime_word_total(row) == _safe_int(row.get("word_play_total"))
             ):
                 continue
             conn.execute(
@@ -1143,7 +1146,7 @@ def reconcile_sentence_focus_state() -> int:
                     _json_dumps(translations, {}),
                     _json_dumps(tips, {}),
                     _json_dumps(counts, {}),
-                    _calculate_word_total(counts),
+                    lifetime_word_total(row),
                     now,
                     int(row["id"]),
                 ),
@@ -1175,30 +1178,13 @@ def _merge_sentence_focus_data(conn, row: dict, *, text: str, translations: dict
             _json_dumps(merged_translations, {}),
             _json_dumps(merged_tips, {}),
             _json_dumps(merged_counts, {}),
-            _calculate_word_total(merged_counts),
+            lifetime_word_total(row),
             now,
             int(row["id"]),
         ),
     )
     updated = conn.execute("SELECT * FROM english_sentences WHERE id = ?", (int(row["id"]),)).fetchone()
     return dict(updated)
-
-
-def _split_marked_passage_sentences(body_text: str) -> list[str]:
-    text = re.sub(r"[ \t]+", " ", str(body_text or "").strip())
-    if not text:
-        return []
-    chunks: list[str] = []
-    for paragraph in re.split(r"\n{2,}", text):
-        normalized = paragraph.strip()
-        if not normalized:
-            continue
-        matches = re.findall(r"[^.!?。！？]+[.!?。！？]+(?:[\"')\]]+)?|[^.!?。！？]+$", normalized)
-        if matches:
-            chunks.extend(item.strip() for item in matches if item.strip())
-        else:
-            chunks.append(normalized)
-    return chunks
 
 
 def _marked_passage_sentence_candidates(body_text: str) -> list[dict]:
@@ -1427,6 +1413,10 @@ def review_sentence(
         return None
     result = serialize_sentence(dict(updated))
     result["review_round_item_completed"] = bool(round_result.get("completed"))
+    if "item_is_completed" in round_result:
+        result["review_round_item_is_completed"] = round_result["item_is_completed"]
+    result["review_round"] = round_result.get("round")
+    result["review_round_id"] = round_result.get("round_id")
     result["review_round_completed"] = bool(round_result.get("round_completed"))
     result["review_round_expired"] = bool(round_result.get("round_expired"))
     result["review_round_item_id"] = round_result.get("round_item_id") or round_item_id
@@ -1454,7 +1444,7 @@ def record_word_play(*, user_id: int, sentence_id: int, word: str) -> dict | Non
         if not key:
             raise ValueError("word is not a focus word in this sentence")
         counts[key] = _safe_int(counts.get(key)) + 1
-        word_total = _calculate_word_total(counts)
+        word_total = lifetime_word_total(data) + 1
         conn.execute(
             """
             UPDATE english_sentences
@@ -1728,7 +1718,7 @@ def update_sentence(
                 _json_dumps(word_translations or {}, {}),
                 _json_dumps(word_tips or {}, {}),
                 _json_dumps(word_counts, {}),
-                _calculate_word_total(word_counts),
+                lifetime_word_total(existing_data),
                 sentence_translation,
                 _json_dumps(_normalize_segments(sentence_segments or []), []),
                 _json_dumps(_normalize_segments(translation_segments or []), []),
@@ -1842,7 +1832,7 @@ def toggle_focus_word(*, user_id: int, sentence_id: int, word: str, action: str 
                 _json_dumps(translations, {}),
                 _json_dumps(tips, {}),
                 _json_dumps(counts, {}),
-                _calculate_word_total(counts),
+                lifetime_word_total(data),
                 now,
                 sentence_id,
             ),

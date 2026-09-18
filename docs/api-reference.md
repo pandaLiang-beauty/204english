@@ -194,7 +194,8 @@ Set-Cookie: english_study_session=<opaque-session>; HttpOnly; Max-Age=1209600; P
 | `word_translations` | object<string,string> | 重点词到释义文本；新生成内容含中文本义、句中义和简明英文解释，尚无词义时值为 `""` |
 | `word_tips` | object<string,string> | 重点词到用法提示，可缺少部分词 |
 | `word_play_counts` | object<string,integer> | 各重点词的播放计数 |
-| `word_play_total` | integer | 当前保留的词播放计数总和 |
+| `word_play_total` | integer | 历史词音播放累计；取消重点词或删除句子不减少累计统计 |
+| `focus_word_play_total` | integer | 当前重点词的播放计数总和；排序仍使用当前重点词计数 |
 | `sentence_translation` | string | 整句译文，未生成时 `""` |
 | `sentence_segments` | string[] | 英文阅读分块 |
 | `translation_segments` | string[] | 与英文按下标对应的中文分块 |
@@ -424,12 +425,15 @@ Query：`limit: integer = 20`，范围 1—100。
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | `review_round_item_completed` | boolean | **本次请求是否新完成一个安排**，与队列里同名字段的含义不同 |
-| `review_round_completed` | boolean | 本次成功完成后，本轮是否全部完成 |
-| `review_round_expired` | boolean | 本次尝试完成时发现当前周期已过期 |
+| `review_round_item_is_completed` | boolean/缺省 | 完成请求对应安排的真实状态；重复提交已完成安排仍为 true。播放事件不返回此字段 |
+| `review_round` | object/null | 完成请求后的周期进度快照，字段同队列的 `review_round`，但不含 `resume_page`；无法确定时为 null |
+| `review_round_id` | integer/null | 本次核对的周期 ID |
+| `review_round_completed` | boolean | 完成请求核对后，本轮是否全部完成；重复提交也返回真实状态 |
+| `review_round_expired` | boolean | 本次尝试完成时周期已过期，或指定安排已不属于当前周期 |
 | `review_round_item_id` | integer/null | 完成的安排 ID，或回显传入 ID；无 ID 时可能为 null |
-| `review_round_next_at` | string | 本次完成整轮后给出的下轮时间，否则 `""` |
+| `review_round_next_at` | string | 整轮已完成时的下轮时间；重试不会推迟它，否则 `""` |
 
-重复完成、安排 ID 与句子不匹配、旧安排不属于当前轮等情况可能是 **200 + `review_round_item_completed=false`**。不能把 200 或 ID 回显当作完成成功，也不能把 false 当作服务端把已完成安排撤回；请刷新队列确认。
+重复完成仍可能是 **200 + `review_round_item_completed=false`**，此时用 `review_round_item_is_completed` 和 `review_round` 恢复真实完成状态及累计进度。只有响应周期 ID 与当前页面周期一致时才能合并；同周期乱序响应不能回退已知完成数。`review_round_expired=true` 或新状态字段缺失时刷新队列，不能仅凭 200 或 ID 回显判断成功。
 
 请求体缺省、`null` 或 `{}` 会默认尝试完成；不传安排 ID 会选择该句当前最早未完成安排。未知 `event_type` 会被当作 `sentence_review`。为避免完成错误安排，客户端始终传合法枚举、明确布尔值及原安排 ID。
 

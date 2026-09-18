@@ -1,16 +1,15 @@
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { englishApi } from './api.js'
 import { createReviewEventQueue } from './createReviewEventQueue.js'
+import { createSentenceEditor } from './createSentenceEditor.js'
+import { mergeSentenceUpdate } from './mergeSentenceUpdate.js'
+import { mergeReviewRoundState } from './reviewRoundState.js'
 import { markedWordsFromText } from './passageMarkdown.js'
 import {
   applyTranslationToDraft,
-  applyWordTranslationsToDraft,
   emptySentenceDraft,
-  missingMarkedWords,
   sentenceDraftPayload,
-  sentenceToDraft,
-  splitBulkSentences,
-  translationSourceKey
+  splitBulkSentences
 } from './sentenceDraft.js'
 import { sentenceInstanceKey } from './sentencePresentation.js'
 
@@ -38,6 +37,10 @@ export function useEnglishSentenceList(context = {}) {
   const roundInitialized = ref(false)
   const translationRefreshTimers = new Map()
   let roundBoundaryTimer = null
+  let loadGeneration = 0
+  let activityGeneration = 0
+  let disposed = false
+  const modeKey = () => [context.isReview?.(), context.isStats?.(), context.isPassages?.(), context.isCreate?.()].join(':')
 
   const pageCount = computed(() => Math.max(1, Math.ceil(total.value / Number(pageSize.value || 20))))
   const weakNetworkWords = computed(() => stats.value?.word_network?.weak_words || [])
@@ -108,24 +111,20 @@ export function useEnglishSentenceList(context = {}) {
       if (previousUi.cachedAudioUrl) URL.revokeObjectURL(previousUi.cachedAudioUrl)
       if (previousUi.pendingCachedAudioUrl) URL.revokeObjectURL(previousUi.pendingCachedAudioUrl)
     }
-    return {
-      showEditor: Boolean(previousUi.showEditor),
+    return reactive({
+      ...sentenceEditor.uiFields(sentence),
       showTranslation: Boolean(previousUi.showTranslation),
-      editDraft: previousUi.editDraft || sentenceToDraft(sentence),
-      message: previousUi.message || '',
       status: previousUi.status || '',
-      saving: false,
-      translating: false,
       audioVoiceSaving: false,
       reviewing: Boolean(previousUi.reviewing),
       reviewPending: Number(previousUi.reviewPending || 0),
       wordPlaying: '',
-      audioPlaying: false,
+      audioPlaying: Boolean(previousUi.audioPlaying),
       cachedAudioUrl: sentenceAudioChanged ? '' : (previousUi.cachedAudioUrl || ''),
       pendingCachedAudioUrl: sentenceAudioChanged ? '' : (previousUi.pendingCachedAudioUrl || ''),
       wordAudioCache: previousUi.wordAudioCache || {},
       audioPreloadPromise: null
-    }
+    })
   }
 
   function decorateSentenceRecord(item, previous = {}) {
@@ -188,24 +187,23 @@ export function useEnglishSentenceList(context = {}) {
     }, Math.min(delay, 2147483647))
   }
 
-  async function fetchActivity({ includeHeatmap = false } = {}) {
-    const statsRequest = englishApi.stats({
-      includeWordNetwork: !context.isReview?.()
-    })
-    if (includeHeatmap) {
-      const [statsResult, heatmapResult] = await Promise.all([
-        statsRequest,
-        englishApi.heatmap({ days: 119 })
-      ])
-      stats.value = statsResult
-      heatmap.value = heatmapResult
-    } else {
-      stats.value = await statsRequest
-    }
-    if (!reviewRound.value) total.value = Number(stats.value?.active || total.value || 0)
+  async function fetchActivity({ includeHeatmap = false, isCurrent = () => true } = {}) {
+    const generation = ++activityGeneration
+    const mode = modeKey()
+    const [statsResult, heatmapResult] = await Promise.all([
+      englishApi.stats({ includeWordNetwork: !context.isReview?.() }),
+      includeHeatmap ? englishApi.heatmap({ days: 119 }) : null
+    ])
+    if (disposed || generation !== activityGeneration || mode !== modeKey() || !isCurrent()) return
+    stats.value = statsResult
+    if (includeHeatmap) heatmap.value = heatmapResult
   }
 
   async function load(options = {}) {
+    if (disposed) return
+    const generation = ++loadGeneration
+    const mode = modeKey()
+    const isCurrent = () => !disposed && generation === loadGeneration && mode === modeKey()
     loading.value = true
     error.value = ''
     try {
@@ -217,7 +215,8 @@ export function useEnglishSentenceList(context = {}) {
       }
 
       if (context.isStats?.()) {
-        await fetchActivity({ includeHeatmap: true })
+        await fetchActivity({ includeHeatmap: true, isCurrent })
+        if (!isCurrent()) return
         audioControls().disposeSentenceCaches?.(sentences.value)
         sentences.value = []
         return
@@ -244,25 +243,23 @@ export function useEnglishSentenceList(context = {}) {
               resume: shouldResumeRound
             }
       )
-      // 统计与列表独立，首屏并发请求；列表 total 仍在随后覆盖统计值。
+      // Statistics do not own list totals or pagination.
       const [, firstPage] = await Promise.all([
-        fetchActivity(),
+        fetchActivity({ isCurrent }),
         englishApi.sentences(sentenceParams)
       ])
+      if (!isCurrent()) return
       let data = firstPage
-      const previousByKey = new Map(sentences.value.map(sentence => [sentenceInstanceKey(sentence), sentence]))
-      let loadedItems = (data.items || []).map(item => (
-        decorateSentenceRecord(item, previousByKey.get(sentenceInstanceKey(item)))
-      ))
-      let nextItems = usesRoundQueue && data.review_round
-        ? loadedItems.filter(item => !item.review_round_item_completed)
-        : loadedItems
+      const visibleItems = result => usesRoundQueue && result.review_round
+        ? (result.items || []).filter(item => !item.review_round_item_completed
+          && !sentences.value.find(current => sentenceInstanceKey(current) === sentenceInstanceKey(item))?.review_round_item_completed)
+        : (result.items || [])
 
       const resumePage = Number(data.review_round?.resume_page || 0)
       const loadedPage = Number(data.page || page.value || 1)
       if (
         usesRoundQueue
-        && !nextItems.length
+        && !visibleItems(data).length
         && Number(data.review_round?.remaining || 0) > 0
         && resumePage > 0
         && resumePage !== loadedPage
@@ -272,31 +269,31 @@ export function useEnglishSentenceList(context = {}) {
           page: resumePage,
           resume: false
         })
-        loadedItems = (data.items || []).map(item => (
-          decorateSentenceRecord(item, previousByKey.get(sentenceInstanceKey(item)))
-        ))
-        nextItems = data.review_round
-          ? loadedItems.filter(item => !item.review_round_item_completed)
-          : loadedItems
+        if (!isCurrent()) return
       }
 
+      const previousByKey = new Map(sentences.value.map(sentence => [sentenceInstanceKey(sentence), sentence]))
+      const nextItems = visibleItems(data).map(item => {
+        const previous = previousByKey.get(sentenceInstanceKey(item)) || {}
+        return decorateSentenceRecord(mergeSentenceUpdate(previous, item), previous)
+      }).filter(item => !usesRoundQueue || !data.review_round || !item.review_round_item_completed)
       const nextKeys = new Set(nextItems.map(sentenceInstanceKey))
       sentences.value.forEach(sentence => {
         if (!nextKeys.has(sentenceInstanceKey(sentence))) audioControls().disposeSentenceCaches?.([sentence])
       })
       sentences.value = nextItems
-      total.value = data.total || nextItems.length
+      total.value = data.total ?? nextItems.length
       page.value = Number(data.page || page.value || 1)
-      reviewRound.value = data.review_round || null
+      reviewRound.value = mergeReviewRoundState(reviewRound.value, data.review_round)
       if (data.review_round) roundInitialized.value = true
       scheduleRoundBoundaryRefresh()
       context.onSentencesLoaded?.(nextItems, data.review_round || null)
       audioControls().resetPreloadWindow?.()
       if (!context.isCreate?.()) audioControls().schedulePreloadWindow?.(0)
     } catch (err) {
-      error.value = err?.message || '英语数据加载失败'
+      if (isCurrent()) error.value = err?.message || '英语数据加载失败'
     } finally {
-      loading.value = false
+      if (isCurrent()) loading.value = false
     }
   }
 
@@ -396,92 +393,29 @@ export function useEnglishSentenceList(context = {}) {
     }
   }
 
-  function toggleEditor(sentence) {
-    sentence.ui.showEditor = !sentence.ui.showEditor
-    sentence.ui.message = ''
-    if (sentence.ui.showEditor) sentence.ui.editDraft = sentenceToDraft(sentence)
-  }
-
-  async function translateSentenceDraft(sentence) {
-    if (!sentence || sentence.ui.translating) return
-    const editDraft = sentence.ui.editDraft
-    const text = String(editDraft?.text || '').trim()
-    if (!text) return
-    const expectedDraft = JSON.stringify(editDraft)
-    sentence.ui.translating = true
-    sentence.ui.message = ''
-    try {
-      const words = markedWordsFromText(text).map(item => item.word)
-      const sourceUnchanged = (
-        translationSourceKey(text) === translationSourceKey(sentence.text)
-        && Boolean(String(editDraft?.sentenceTranslation || '').trim())
-      )
-      const missingWords = missingMarkedWords(editDraft, { includeMissingEnglish: true })
-      if (sourceUnchanged && !missingWords.length) {
-        sentence.ui.message = '整句译文和重点词中英文释义均已存在'
-        return
+  const sentenceEditor = createSentenceEditor({
+    updateSentenceInList,
+    onSaved: fresh => {
+      const audioNeedsRegeneration = Boolean(fresh.audio_needs_regeneration)
+      if (needsGeneratedTranslation(fresh)) {
+        fresh.ui.message = audioNeedsRegeneration
+          ? '已保存，翻译和音频已进入更新流程'
+          : '已保存，正在自动翻译'
+        scheduleTranslationRefresh(fresh.id, fresh.text)
+      } else {
+        fresh.ui.message = audioNeedsRegeneration
+          ? '已保存，音频已进入重新生成队列'
+          : '已保存'
       }
-      const wordsOnly = sourceUnchanged && missingWords.length > 0
-      const result = wordsOnly
-        ? await englishApi.translateWords({ text, words: missingWords, sentence_id: sentence.id, sentence_translation: editDraft.sentenceTranslation })
-        : await englishApi.translateText({ text, words, sentence_id: sentence.id })
-      if (JSON.stringify(sentence.ui.editDraft) !== expectedDraft) {
-        sentence.ui.message = '内容已修改，已忽略旧翻译结果'
-        return
-      }
-      sentence.ui.editDraft = wordsOnly
-        ? applyWordTranslationsToDraft(sentence.ui.editDraft, result)
-        : applyTranslationToDraft(sentence.ui.editDraft, result)
-      sentence.ui.message = wordsOnly
-        ? `已补充 ${missingWords.length} 个重点词释义（含英文解释），保存后生效`
-        : '已生成翻译，保存后生效'
-    } catch (err) {
-      sentence.ui.message = err?.message || '生成翻译失败'
-    } finally {
-      sentence.ui.translating = false
+      if (!context.isReview?.()) audioControls().scheduleAudioStatusRefresh?.()
     }
-  }
+  })
+  const { toggleEditor, translateSentenceDraft, saveSentence } = sentenceEditor
 
-  async function saveSentence(sentence) {
-    if (!sentence || sentence.ui.saving) return
-    const expectedDraft = JSON.stringify(sentence.ui.editDraft)
-    const payload = sentenceDraftPayload(sentence.ui.editDraft)
-    sentence.ui.saving = true
-    sentence.ui.message = ''
-    try {
-      const updated = await englishApi.updateSentence(sentence.id, payload)
-      const audioNeedsRegeneration = Boolean(updated?.audio_needs_regeneration)
-      updateSentenceInList(updated, sentence)
-      const expectedKey = sentenceInstanceKey(sentence)
-      const fresh = sentences.value.find(item => sentenceInstanceKey(item) === expectedKey)
-      if (fresh) {
-        if (JSON.stringify(fresh.ui.editDraft) !== expectedDraft) {
-          fresh.ui.showEditor = true
-          fresh.ui.message = '请求中的版本已保存，当前修改仍待保存'
-        } else {
-          fresh.ui.showEditor = false
-          if (needsGeneratedTranslation(fresh)) {
-            fresh.ui.message = audioNeedsRegeneration
-              ? '已保存，翻译和音频已进入更新流程'
-              : '已保存，正在自动翻译'
-            scheduleTranslationRefresh(fresh.id, fresh.text)
-          } else {
-            fresh.ui.message = audioNeedsRegeneration
-              ? '已保存，音频已进入重新生成队列'
-              : '已保存'
-          }
-        }
-      }
-      if (!context.isReview?.()) {
-        audioControls().scheduleAudioStatusRefresh?.()
-      }
-    } catch (err) {
-      sentence.ui.message = err?.message || '保存失败'
-    } finally {
-      sentence.ui.saving = false
-      const fresh = sentences.value.find(item => sentenceInstanceKey(item) === sentenceInstanceKey(sentence))
-      if (fresh?.ui) fresh.ui.saving = false
-    }
+  function hasPendingChanges() {
+    return sentenceEditor.hasPendingChanges()
+      || JSON.stringify(draft.value) !== JSON.stringify(emptySentenceDraft())
+      || Boolean(bulkText.value.trim()) || saving.value || bulkLoading.value || translatingDraft.value
   }
 
   async function deleteSentence(sentence) {
@@ -490,6 +424,7 @@ export function useEnglishSentenceList(context = {}) {
     sentence.ui.message = ''
     try {
       await englishApi.deleteSentence(sentence.id)
+      sentenceEditor.forget(sentence.id)
       audioControls().disposeSentenceCaches?.([sentence])
       await load()
     } catch (err) {
@@ -497,13 +432,13 @@ export function useEnglishSentenceList(context = {}) {
     }
   }
 
-  function updateSentenceInList(updated, previous) {
-    const old = previous || sentences.value.find(item => item.id === updated.id) || {}
-    const merged = { ...old, ...updated }
-    const decorated = decorateSentenceRecord(merged, old)
-    decorated.ui.audioPlaying = Boolean(old.ui?.audioPlaying)
-    const targetKey = sentenceInstanceKey(old.id ? old : merged)
+  function updateSentenceInList(updated, previous, { scope } = {}) {
+    const targetKey = sentenceInstanceKey(previous || updated)
     const index = sentences.value.findIndex(item => sentenceInstanceKey(item) === targetKey)
+    const old = sentences.value[index] || previous || {}
+    const merged = mergeSentenceUpdate(old, updated, scope)
+    if (scope && index === -1) return { ...merged, ui: old.ui }
+    const decorated = decorateSentenceRecord(merged, old)
     if (index !== -1) sentences.value.splice(index, 1, decorated)
     return decorated
   }
@@ -534,6 +469,9 @@ export function useEnglishSentenceList(context = {}) {
     onRoundCompleted: handleReviewRoundCompleted
   })
   function resetForModeChange() {
+    loadGeneration += 1
+    activityGeneration += 1
+    loading.value = false
     clearRoundBoundaryTimer()
     if (typeof window !== 'undefined') {
       translationRefreshTimers.forEach(timer => window.clearTimeout(timer))
@@ -544,6 +482,11 @@ export function useEnglishSentenceList(context = {}) {
     reviewRound.value = null
     createOpen.value = false
     error.value = ''
+  }
+
+  function dispose() {
+    resetForModeChange()
+    disposed = true
   }
 
   return {
@@ -591,7 +534,8 @@ export function useEnglishSentenceList(context = {}) {
     deleteSentence,
     updateSentenceInList,
     markReviewed,
+    hasPendingChanges,
     resetForModeChange,
-    disposeRoundBoundaryTimer: clearRoundBoundaryTimer
+    dispose
   }
 }

@@ -379,6 +379,40 @@ def queue_state(
     }
 
 
+def _completion_state(conn, current: dict, target, *, newly_completed: bool = False) -> dict:
+    round_id = int(current["id"])
+    total, completed = _active_sentence_counts(conn, round_id=round_id)
+    done = total > 0 and completed >= total
+    next_round_at = ""
+    if done:
+        last_completed = conn.execute(
+            "SELECT MAX(completed_at) FROM english_review_round_items WHERE round_id = ?",
+            (round_id,),
+        ).fetchone()[0]
+        next_round_at = _iso(_next_study_boundary(_parse(last_completed) or _utc_now()))
+    return {
+        # Keep the write-result flag for callers that increment event counters.
+        "completed": newly_completed,
+        "item_is_completed": bool(target and (newly_completed or target["completed_at"])),
+        "round_completed": done,
+        "round_id": round_id,
+        "round_item_id": int(target["id"]) if target else None,
+        "next_round_at": next_round_at,
+        "round": {
+            "id": round_id,
+            "started_at": current["started_at"],
+            "expires_at": current["expires_at"],
+            "total": total,
+            "completed": completed,
+            "remaining": max(total - completed, 0),
+            "available": total,
+            "available_remaining": max(total - completed, 0),
+            "is_completed": done,
+            "next_round_at": next_round_at,
+        },
+    }
+
+
 def complete_current_item(
     conn,
     *,
@@ -388,7 +422,7 @@ def complete_current_item(
 ) -> dict:
     row = _round_row(conn, user_id=user_id)
     if not row:
-        return {"completed": False, "round_completed": False}
+        return {"completed": False, "round_completed": False, "round_expired": bool(round_item_id)}
     current = dict(row)
     now = _utc_now()
     expires_at = _parse(current.get("expires_at"))
@@ -405,17 +439,16 @@ def complete_current_item(
     if round_item_id:
         target = conn.execute(
             """
-            SELECT id
+            SELECT id, completed_at
             FROM english_review_round_items
             WHERE id = ? AND round_id = ? AND user_id = ? AND sentence_id = ?
-              AND COALESCE(completed_at, '') = ''
             """,
             (round_item_id, int(current["id"]), user_id, sentence_id),
         ).fetchone()
     else:
         target = conn.execute(
             """
-            SELECT id
+            SELECT id, completed_at
             FROM english_review_round_items
             WHERE round_id = ? AND user_id = ? AND sentence_id = ?
               AND COALESCE(completed_at, '') = ''
@@ -425,7 +458,12 @@ def complete_current_item(
             (int(current["id"]), user_id, sentence_id),
         ).fetchone()
     if not target:
-        return {"completed": False, "round_completed": False, "round_id": int(current["id"])}
+        return {
+            **_completion_state(conn, current, None),
+            "round_expired": bool(round_item_id),
+        }
+    if target["completed_at"]:
+        return _completion_state(conn, current, target)
     item_id = int(target["id"])
     cursor = conn.execute(
         """
@@ -435,14 +473,4 @@ def complete_current_item(
         """,
         (now_text, now_text, item_id),
     )
-    if cursor.rowcount <= 0:
-        return {"completed": False, "round_completed": False, "round_id": int(current["id"])}
-    total, completed = _active_sentence_counts(conn, round_id=int(current["id"]))
-    done = total > 0 and completed >= total
-    return {
-        "completed": True,
-        "round_completed": done,
-        "round_id": int(current["id"]),
-        "round_item_id": item_id,
-        "next_round_at": _iso(_next_study_boundary(_parse(now_text) or _utc_now())) if done else "",
-    }
+    return _completion_state(conn, current, target, newly_completed=cursor.rowcount > 0)

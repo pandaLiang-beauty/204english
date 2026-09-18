@@ -123,13 +123,14 @@ export function useEnglishAudio(sentencesRef, callbacks = {}) {
         stopWordAudio()
       }
       stopSentenceAudio()
-      currentWordAudio = new Audio(source)
-      currentWordAudio.addEventListener('ended', () => {
-        currentWordAudio = null
+      const wordAudio = new Audio(source)
+      currentWordAudio = wordAudio
+      wordAudio.addEventListener('ended', () => {
+        if (currentWordAudio === wordAudio) currentWordAudio = null
       }, { once: true })
-      await currentWordAudio.play()
+      await wordAudio.play()
       const updated = await englishApi.playWord(sentence.id, word)
-      const decorated = callbacks.updateSentenceInList?.(updated, sentence)
+      const decorated = callbacks.updateSentenceInList?.(updated, sentence, { scope: 'word-play' })
       if (decorated?.ui) decorated.ui.wordPlaying = ''
       await callbacks.refreshActivity?.()
     } catch (err) {

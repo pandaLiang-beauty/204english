@@ -31,8 +31,8 @@ const router = useRouter()
 const englishFlow = ref(null)
 const view = ref(viewFromPath(route.path))
 
-async function flushPendingChanges() {
-  const result = await englishFlow.value?.flushPendingChanges?.()
+async function flushPendingChanges(options) {
+  const result = await englishFlow.value?.flushPendingChanges?.(options)
   return result !== false
 }
 
@@ -43,7 +43,7 @@ async function setView(targetView) {
 }
 
 async function requestLogout() {
-  if (!await flushPendingChanges()) return
+  if (!await flushPendingChanges({ leavingWorkspace: true })) return
   emit('logout')
 }
 

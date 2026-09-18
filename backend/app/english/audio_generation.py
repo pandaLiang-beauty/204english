@@ -257,8 +257,19 @@ async def _edge_tts_save(text: str, path: Path, *, voice: str = DEFAULT_EDGE_VOI
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=str(path.parent)) as handle:
         tmp_path = Path(handle.name)
     try:
-        communicate = edge_tts.Communicate(cleaned, voice=voice)
-        await communicate.save(str(tmp_path))
+        try:
+            await edge_tts.Communicate(cleaned, voice=voice).save(str(tmp_path))
+        except OSError as exc:
+            import errno
+            import socket
+            import aiohttp
+
+            if exc.errno not in {errno.ENETUNREACH, errno.EHOSTUNREACH}:
+                raise
+            # Some hosts resolve IPv6 addresses without an IPv6 route. Retry
+            # on IPv4 while retaining the requested voice and atomic file write.
+            async with aiohttp.TCPConnector(family=socket.AF_INET) as connector:
+                await edge_tts.Communicate(cleaned, voice=voice, connector=connector).save(str(tmp_path))
         if not tmp_path.exists() or tmp_path.stat().st_size <= 0:
             raise RuntimeError("edge-tts wrote an empty audio file")
         tmp_path.replace(path)
@@ -812,15 +823,20 @@ def resume_pending_audio_generation_best_effort() -> None:
     except Exception as exc:  # noqa: BLE001 - startup recovery must not stop the application.
         print(f"english audio metadata reconciliation failed: {type(exc).__name__}: {exc}", flush=True)
     rows = _load_sentence_rows()
-    pending_ids = [
+    pending_sentence_ids = [
         int(row["id"])
         for row in rows
         if str(row.get("audio_status") or "").strip().lower() in {"pending", "failed", "missing"}
     ]
-    if not pending_ids:
-        return
-    generate_word_audio_for_sentence_ids_best_effort(pending_ids)
-    generate_sentence_audio_for_sentence_ids_best_effort(pending_ids)
+    pending_word_ids = [
+        int(row["id"])
+        for row in rows
+        if any(not _has_word_audio(int(row["id"]), word) for word in _words_from_row(row))
+    ]
+    if pending_word_ids:
+        generate_word_audio_for_sentence_ids_best_effort(pending_word_ids)
+    if pending_sentence_ids:
+        generate_sentence_audio_for_sentence_ids_best_effort(pending_sentence_ids)
 
 
 def load_rows_for_generation(*, ids: list[int] | None = None, limit: int = 0) -> list[dict[str, Any]]:

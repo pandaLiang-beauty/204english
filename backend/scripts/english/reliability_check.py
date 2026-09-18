@@ -38,6 +38,7 @@ from scripts.english.review_round_checks import (
     check_review_round_catch_up_uses_each_snapshot_length,
     check_review_round_deadline_is_frozen_and_early_completion_still_works,
 )
+from scripts.english.review_regression_checks import REGRESSION_CHECKS
 
 
 def _decode_json(raw: object, fallback):
@@ -1606,7 +1607,8 @@ def check_focus_map_pruning_and_reconciliation() -> None:
             assert repaired and repaired["word_translations"] == {"focus": "重点"}, repaired
             assert repaired["word_tips"] == {"focus": "提示"}, repaired
             assert repaired["word_play_counts"] == {"focus": 2}, repaired
-            assert repaired["word_play_total"] == 2, repaired
+            assert repaired["word_play_total"] == 7, repaired
+            assert repaired["focus_word_play_total"] == 2, repaired
 
             unmarked = repository.update_sentence(
                 sentence_id=sentence_id,
@@ -1617,7 +1619,8 @@ def check_focus_map_pruning_and_reconciliation() -> None:
             assert unmarked and unmarked["word_translations"] == {}, unmarked
             assert unmarked["word_tips"] == {}, unmarked
             assert unmarked["word_play_counts"] == {}, unmarked
-            assert unmarked["word_play_total"] == 0, unmarked
+            assert unmarked["word_play_total"] == 7, unmarked
+            assert unmarked["focus_word_play_total"] == 0, unmarked
     finally:
         platform_db.DB_PATH = original_path
 
@@ -2246,7 +2249,7 @@ CHECKS = (
     check_review_round_deadline_is_frozen_and_early_completion_still_works,
     check_sqlite_review_concurrency_and_stale_audio,
     check_today_passage_keeps_completed_items,
-)
+) + REGRESSION_CHECKS
 
 
 def run_checks() -> None:

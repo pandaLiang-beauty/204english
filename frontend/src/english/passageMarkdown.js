@@ -1,5 +1,6 @@
 // 英语 passage / 富文本编辑器共用的 markdown 纯函数工具。
 // 不含组件状态，供 RichMarkedTextEditor.vue、usePassageEditor.js 复用。
+import { splitEnglishSentences as splitMarkedPassageSentences } from './splitEnglishSentences.js'
 
 export function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, char => ({
@@ -81,19 +82,7 @@ export function editableElementToMarkdown(el) {
     .trim()
 }
 
-export function splitMarkedPassageSentences(text) {
-  const source = String(text || '').replace(/[ \t]+/g, ' ').trim()
-  if (!source) return []
-  const chunks = []
-  source.split(/\n{2,}/).forEach(paragraph => {
-    const normalized = paragraph.trim()
-    if (!normalized) return
-    const matches = normalized.match(/[^.!?。！？]+[.!?。！？]+(?:["')\]]+)?|[^.!?。！？]+$/g)
-    if (matches?.length) chunks.push(...matches.map(item => item.trim()).filter(Boolean))
-    else chunks.push(normalized)
-  })
-  return chunks
-}
+export { splitMarkedPassageSentences }
 
 export function markedWordsFromText(text) {
   const result = []

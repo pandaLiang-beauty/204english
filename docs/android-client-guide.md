@@ -179,7 +179,7 @@ data class ReviewRoundDto(
     val remaining: Int,
     @SerialName("is_completed") val isCompleted: Boolean,
     @SerialName("next_round_at") val nextRoundAt: String,
-    @SerialName("resume_page") val resumePage: Int,
+    @SerialName("resume_page") val resumePage: Int = 1,
 )
 
 @Serializable
@@ -213,13 +213,16 @@ data class ReviewRequest(
     @SerialName("round_item_id") val roundItemId: Long?,
 )
 
-// 与队列 DTO 分开：这里的 completed 表示本次是否新完成，而非当前状态。
+// newlyCompleted 保留写入语义；itemIsCompleted 和 reviewRound 用于恢复真实状态。
 @Serializable
 data class ReviewResultDto(
     val id: Long,
     @SerialName("review_count") val reviewCount: Long,
     @SerialName("completion_count") val completionCount: Long,
     @SerialName("review_round_item_completed") val newlyCompleted: Boolean,
+    @SerialName("review_round_item_is_completed") val itemIsCompleted: Boolean? = null,
+    @SerialName("review_round") val reviewRound: ReviewRoundDto? = null,
+    @SerialName("review_round_id") val roundId: Long? = null,
     @SerialName("review_round_completed") val roundCompleted: Boolean,
     @SerialName("review_round_expired") val roundExpired: Boolean,
     @SerialName("review_round_item_id") val roundItemId: Long?,
@@ -326,7 +329,7 @@ suspend fun completeArrangement(item: SentenceDto): Response<ReviewResultDto> =
     )
 ```
 
-请求期间禁用同一项的重复完成操作。处理完 HTTP 错误后，查看 newlyCompleted/roundExpired；false 可能表示已经完成或安排已失效，重新获取队列，不要把它覆盖成“未完成”。请求超时也先刷新，确需重试时使用原安排 ID。
+请求期间禁用同一项的重复完成操作。完成请求超时后可用原安排 ID 重试；用 itemIsCompleted 和 reviewRound 恢复真实状态与完成数，newlyCompleted=false 只表示没有新增完成记录。仅合并与当前周期 ID 一致的响应，同周期乱序响应不能降低已知完成数。roundExpired=true 或兼容旧服务端时缺少状态字段，则重新获取队列。播放事件仍不能无条件重试。
 
 退出复习页面再回来、App 恢复前台、到达 expiresAt 或非空 nextRoundAt 时刷新队列。周期天数为 `max(1, ceil(本轮初始安排数 / 100))`，如 1041 项为 11 天；周期和北京时间 08:00 边界由后端决定，设备改时区不改变服务端安排。整轮可自由复习，每日完成量不受限，已有接口路径、字段和类型保持兼容。
 

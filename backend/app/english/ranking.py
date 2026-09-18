@@ -339,7 +339,7 @@ def build_review_schedule(ranked_items: list[tuple[dict, dict]]) -> list[dict]:
         key=lambda item: (
             not (
                 _safe_int(item[1][0].get("review_count")) == 0
-                and _safe_int(item[1][0].get("word_play_total")) == 0
+                and not any(_safe_int(value) for value in _normalize_dict(item[1][0].get("word_play_counts_json")).values())
                 and _safe_int(item[1][0].get("completion_count")) == 0
             ),
             item[0],

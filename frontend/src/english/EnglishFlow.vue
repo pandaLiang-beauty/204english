@@ -300,8 +300,9 @@ const {
   deleteSentence,
   updateSentenceInList,
   markReviewed,
+  hasPendingChanges: hasPendingSentenceChanges,
   resetForModeChange,
-  disposeRoundBoundaryTimer
+  dispose: disposeSentenceList
 } = useEnglishSentenceList({
   isCreate: () => isCreate.value,
   isStats: () => isStats.value,
@@ -346,11 +347,15 @@ function applyListDefaultsForMode() {
 }
 
 function hasPendingChanges() {
-  return Boolean(passagesView.value?.hasPendingChanges?.())
+  return hasPendingSentenceChanges() || Boolean(passagesView.value?.hasPendingChanges?.())
 }
 
-async function flushPendingChanges() {
-  return await passagesView.value?.flushPendingChanges?.() ?? true
+async function flushPendingChanges({ leavingWorkspace = false } = {}) {
+  if ((await passagesView.value?.flushPendingChanges?.()) === false) return false
+  // Internal navigation retains manual sentence drafts; leaving the workspace
+  // must explicitly account for their loss, just like beforeunload does.
+  return !leavingWorkspace || !hasPendingSentenceChanges()
+    || window.confirm('有未保存的句子修改，退出登录会丢弃这些修改。确定退出？')
 }
 
 defineExpose({
@@ -471,7 +476,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleEnglishKeyboard)
   stopVoicePreview()
-  disposeRoundBoundaryTimer()
+  disposeSentenceList()
   disposeAudioResources()
 })
 </script>
