@@ -321,15 +321,16 @@ def sentence_exposure_metrics(rows: list[dict]) -> dict[int, dict]:
     sentence_percentiles = _rank_percentiles(exposures, include_zero=True)
     for sentence_id, detail in details.items():
         percentile = float(sentence_percentiles.get(sentence_id, 0.5))
-        wave = math.sin(2 * math.pi * percentile) ** 2
-        repeat_count = 1 + int(math.floor(wave + 0.5))
         detail["percentile"] = percentile
-        detail["repeat_count"] = min(2, max(1, repeat_count))
+        # Each sentence is now scheduled once per review round. Keep the
+        # exposure percentile in the diagnostics, but do not turn it into a
+        # second review item.
+        detail["repeat_count"] = 1
     return details
 
 
 def build_review_schedule(ranked_items: list[tuple[dict, dict]]) -> list[dict]:
-    """Expand the smart order into one or two passes across seven slots."""
+    """Build one review item for each sentence in smart order."""
     if not ranked_items:
         return []
     rows = [row for row, _ in ranked_items]
@@ -346,33 +347,19 @@ def build_review_schedule(ranked_items: list[tuple[dict, dict]]) -> list[dict]:
         ),
     )
     base_items = [item for _, item in prioritized]
-    slots_by_id: dict[int, list[int]] = {}
+    schedule: list[dict] = []
     for row, _ in base_items:
         sentence_id = int(row["id"])
-        repeat_total = int(exposure_by_id[sentence_id]["repeat_count"])
-        slots_by_id[sentence_id] = (
-            [0]
-            if repeat_total == 1
-            else [round(index * 6 / (repeat_total - 1)) for index in range(repeat_total)]
+        detail = exposure_by_id[sentence_id]
+        schedule.append(
+            {
+                "sentence_id": sentence_id,
+                "repeat_index": 1,
+                "repeat_total": 1,
+                "exposure_score": float(detail["exposure"]),
+                "exposure_percentile": float(detail["percentile"]),
+            }
         )
-
-    schedule: list[dict] = []
-    for slot in range(7):
-        for row, _ in base_items:
-            sentence_id = int(row["id"])
-            slots = slots_by_id[sentence_id]
-            if slot not in slots:
-                continue
-            detail = exposure_by_id[sentence_id]
-            schedule.append(
-                {
-                    "sentence_id": sentence_id,
-                    "repeat_index": slots.index(slot) + 1,
-                    "repeat_total": len(slots),
-                    "exposure_score": float(detail["exposure"]),
-                    "exposure_percentile": float(detail["percentile"]),
-                }
-            )
     return schedule
 
 

@@ -253,8 +253,8 @@ test('activity refresh preserves full-round pagination after more than 100 compl
   }
   englishApi.stats = async () => ({ active: 710 })
   englishApi.sentences = async () => ({
-    items: [sentenceRecord()], total: 1041, page: 6,
-    review_round: { id: 11, total: 1041, completed: 117, remaining: 924, available: 1041, available_remaining: 924 }
+    items: [sentenceRecord()], total: 710, page: 6,
+    review_round: { id: 11, total: 710, completed: 117, remaining: 593, available: 710, available_remaining: 593 }
   })
   englishApi.reviewSentence = async () => ({ ...sentenceRecord(0, true), review_round_completed: false })
   try {
@@ -262,8 +262,8 @@ test('activity refresh preserves full-round pagination after more than 100 compl
     await list.load()
     await list.markReviewed(list.sentences.value[0])
     assert.equal(list.reviewRound.value.completed, 118)
-    assert.equal(list.total.value, 1041)
-    assert.equal(list.pageCount.value, 53)
+    assert.equal(list.total.value, 710)
+    assert.equal(list.pageCount.value, 36)
   } finally {
     Object.assign(englishApi, originals)
   }

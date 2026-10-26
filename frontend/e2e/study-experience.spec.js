@@ -19,7 +19,7 @@ test('original day and night controls persist the chosen appearance', async ({ p
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 })
 
-test('original review preserves translation space and independent repeated arrangements', async ({ page }) => {
+test('original review preserves translation space and completes single arrangements independently', async ({ page }) => {
   const state = await mockStudy(page)
   await page.goto('/')
   const cards = cardsFor(page)

@@ -21,9 +21,8 @@ def check_completion_retries_return_authoritative_state() -> None:
     with _review_database() as clock:
         _insert_sentences(1, 2)
         schedule = [
-            {"sentence_id": 1, "repeat_index": 1, "repeat_total": 2},
-            {"sentence_id": 2},
-            {"sentence_id": 1, "repeat_index": 2, "repeat_total": 2},
+            {"sentence_id": 1, "repeat_index": 1, "repeat_total": 1},
+            {"sentence_id": 2, "repeat_index": 1, "repeat_total": 1},
         ]
         with db.get_connection() as conn:
             state = review_rounds.queue_state(conn, user_id=1, schedule=schedule, page=1, page_size=20, resume=False)
@@ -39,19 +38,19 @@ def check_completion_retries_return_authoritative_state() -> None:
             assert retry["review_round_item_completed"] is False, retry
             assert retry["review_round_item_is_completed"] is True, retry
             assert retry["review_round"]["completed"] == 1, retry
-            assert retry["review_round"]["remaining"] == 2, retry
+            assert retry["review_round"]["remaining"] == 1, retry
             assert retry["completion_count"] == 1, retry
         with db.get_connection() as conn:
             assert conn.execute("SELECT COUNT(*) FROM english_review_events WHERE event_type = 'sentence_review'").fetchone()[0] == 1
-            assert not conn.execute("SELECT completed_at FROM english_review_round_items WHERE id = ?", (records[2]["id"],)).fetchone()[0]
+            assert not conn.execute("SELECT completed_at FROM english_review_round_items WHERE id = ?", (records[1]["id"],)).fetchone()[0]
         for item in records[1:]:
             completed = repository.review_sentence(user_id=1, sentence_id=item["sentence_id"], round_item_id=item["id"])
         expected_next = completed["review_round_next_at"]
         clock[0] += timedelta(hours=3)
-        retry = repository.review_sentence(user_id=1, sentence_id=1, round_item_id=records[2]["id"])
+        retry = repository.review_sentence(user_id=1, sentence_id=1, round_item_id=item_id)
         assert retry["review_round"]["is_completed"] is True, retry
         assert retry["review_round_next_at"] == expected_next, retry
-        assert retry["completion_count"] == 2, retry
+        assert retry["completion_count"] == 1, retry
         clock[0] += timedelta(days=1)
         with db.get_connection() as conn:
             new = review_rounds.queue_state(conn, user_id=1, schedule=schedule, page=1, page_size=20, resume=False)

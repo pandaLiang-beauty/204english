@@ -32,6 +32,7 @@ from .review_rounds import (
     close_due_round,
     complete_current_item,
     normalize_active_round_boundary,
+    sync_active_round_items,
     queue_state,
 )
 from .stats import review_heatmap, stats
@@ -903,11 +904,12 @@ def list_sentences(
 
 
 def advance_due_review_rounds(*, now: datetime | None = None, user_id: int | None = None) -> list[dict]:
-    """Create or rotate fixed-boundary schedules for every local user.
+    """Create or rotate boundary-based schedules for every local user.
 
     This is called by the process scheduler and is also safe to call as a
-    request-time recovery path. It only changes a round when its fixed boundary
-    has arrived (or when no round exists yet).
+    request-time recovery path. It synchronizes the active sentence set and
+    changes a round when its current boundary has arrived (or when no round
+    exists yet).
     """
     current_now = now or review_rounds._utc_now()
     with get_connection() as conn:
@@ -924,6 +926,18 @@ def advance_due_review_rounds(*, now: datetime | None = None, user_id: int | Non
                     "SELECT 1 FROM english_review_rounds WHERE user_id = ? LIMIT 1",
                     (user_id,),
                 ).fetchone()
+            )
+            active_rows = rows_to_dicts(
+                conn.execute(
+                    "SELECT * FROM english_sentences WHERE COALESCE(deleted_at, '') = '' ORDER BY id"
+                ).fetchall()
+            )
+            active_schedule = build_review_schedule(_rank_sentences_by_peak_familiarity(active_rows))
+            sync_active_round_items(
+                conn,
+                user_id=user_id,
+                schedule=active_schedule,
+                now=current_now,
             )
             normalize_active_round_boundary(conn, user_id=user_id, now=current_now)
             boundary = close_due_round(conn, user_id=user_id, now=current_now)

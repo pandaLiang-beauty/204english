@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from ..platform.db import _ensure_column, get_connection
 from .word_play_history import reconcile_word_play_totals
 
@@ -271,6 +273,61 @@ def _ensure_repeatable_review_items(conn) -> None:
     )
 
 
+def _collapse_active_round_repeats(conn) -> None:
+    """Migrate the active round to one item per sentence.
+
+    Historical rounds retain their original repeat items. For the active round,
+    keep a completed occurrence when one exists, otherwise keep the earliest
+    occurrence, then compact positions for the single-pass schedule.
+    """
+    active_rounds = conn.execute(
+        "SELECT id FROM english_review_rounds WHERE status = 'active' ORDER BY id"
+    ).fetchall()
+    for round_row in active_rounds:
+        round_id = int(round_row["id"])
+        items = conn.execute(
+            """
+            SELECT *
+            FROM english_review_round_items
+            WHERE round_id = ?
+            ORDER BY position, id
+            """,
+            (round_id,),
+        ).fetchall()
+        if not items:
+            continue
+
+        kept_by_sentence: dict[int, Any] = {}
+        for item in items:
+            sentence_id = int(item["sentence_id"])
+            previous = kept_by_sentence.get(sentence_id)
+            if previous is None or (
+                not str(previous["completed_at"] or "")
+                and str(item["completed_at"] or "")
+            ):
+                kept_by_sentence[sentence_id] = item
+
+        kept = sorted(kept_by_sentence.values(), key=lambda item: (int(item["position"]), int(item["id"])))
+        kept_ids = {int(item["id"]) for item in kept}
+        removed_ids = [int(item["id"]) for item in items if int(item["id"]) not in kept_ids]
+        if removed_ids:
+            conn.executemany(
+                "DELETE FROM english_review_round_items WHERE id = ?",
+                [(item_id,) for item_id in removed_ids],
+            )
+
+        for position, item in enumerate(kept, start=1):
+            conn.execute(
+                """
+                UPDATE english_review_round_items
+                SET position = ?, repeat_index = 1, repeat_total = 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (position, int(item["id"])),
+            )
+
+
 def initialize_schema() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA_SQL)
@@ -279,4 +336,5 @@ def initialize_schema() -> None:
         _ensure_sentence_audio_columns(conn)
         _ensure_sentence_translation_columns(conn)
         _ensure_passage_columns(conn)
+        _collapse_active_round_repeats(conn)
         reconcile_word_play_totals(conn)

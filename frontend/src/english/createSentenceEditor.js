@@ -10,7 +10,7 @@ import {
   translationSourceKey
 } from './sentenceDraft.js'
 
-// Editing belongs to the sentence, independently of the visible page or repeat.
+// Editing belongs to the sentence, independently of the visible page or round item.
 // Keep one reactive draft so an in-flight save/translation sees subsequent edits.
 export function createSentenceEditor({ updateSentenceInList, onSaved }) {
   const entries = new Map()

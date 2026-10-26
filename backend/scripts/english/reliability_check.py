@@ -34,9 +34,9 @@ from scripts.english import finalize_translation_evaluation, repair_translation_
 from scripts.english import reconcile_translation_focus
 from scripts.english import backfill_english_definitions
 from scripts.english.review_round_checks import (
-    check_review_round_length_preserves_progress_without_daily_limits,
+    check_review_round_length_and_progress_without_daily_limits,
     check_review_round_catch_up_uses_each_snapshot_length,
-    check_review_round_deadline_is_frozen_and_early_completion_still_works,
+    check_review_round_deadline_tracks_sentence_changes_and_early_completion_still_works,
 )
 from scripts.english.review_regression_checks import REGRESSION_CHECKS
 
@@ -1727,7 +1727,7 @@ def check_sentence_write_boundaries() -> None:
                 word_translations={"focus": "重点"},
             )
             repository.list_sentences(user_id=1, sort="smart", page=1, page_size=20, resume=True)
-            second = repository.create_sentence(text="A later sentence is not yet in that frozen round.")
+            second = repository.create_sentence(text="A later sentence joins the current round on the next queue read.")
             reviewed = repository.review_sentence(user_id=1, sentence_id=int(second["id"]))
             assert reviewed and reviewed["review_round_item_completed"] is False, reviewed
 
@@ -1747,7 +1747,7 @@ def check_sentence_write_boundaries() -> None:
         platform_db.DB_PATH = original_path
 
 
-def check_review_queue_includes_audio_optional_sentences_and_freezes_membership() -> None:
+def check_review_queue_includes_audio_optional_sentences_and_tracks_membership() -> None:
     original_path = platform_db.DB_PATH
     original_audio_dir = repository.ENGLISH_AUDIO_DIR
     try:
@@ -1798,22 +1798,22 @@ def check_review_queue_includes_audio_optional_sentences_and_freezes_membership(
             assert int(item_count) == 3, item_count
 
             later = repository.create_sentence(text="A new sentence waits for the next review cycle.")
-            frozen_load = repository.list_sentences(
+            refreshed_load = repository.list_sentences(
                 user_id=1,
                 sort="smart",
                 page=1,
                 page_size=20,
                 resume=True,
             )
-            assert frozen_load["review_round"]["id"] == round_id, frozen_load
-            assert frozen_load["total"] == 3, frozen_load
-            assert all(int(item["id"]) != int(later["id"]) for item in frozen_load["items"]), frozen_load
+            assert refreshed_load["review_round"]["id"] == round_id, refreshed_load
+            assert refreshed_load["total"] == 4, refreshed_load
+            assert any(int(item["id"]) == int(later["id"]) for item in refreshed_load["items"]), refreshed_load
     finally:
         platform_db.DB_PATH = original_path
         repository.ENGLISH_AUDIO_DIR = original_audio_dir
 
 
-def check_exposure_formula_and_double_peak_repeats() -> None:
+def check_exposure_formula_and_single_pass_schedule() -> None:
     linked_rows = [
         {
             "id": 1,
@@ -1850,23 +1850,23 @@ def check_exposure_formula_and_double_peak_repeats() -> None:
         for index in range(5)
     ]
     peak = sentence_exposure_metrics(peak_rows)
-    assert [peak[index]["repeat_count"] for index in range(1, 6)] == [1, 2, 1, 2, 1], peak
+    assert [peak[index]["repeat_count"] for index in range(1, 6)] == [1, 1, 1, 1, 1], peak
     ranked = [(row, {"score": 0}) for row in peak_rows]
     schedule = build_review_schedule(ranked)
     counts = {
         sentence_id: sum(1 for item in schedule if int(item["sentence_id"]) == sentence_id)
         for sentence_id in range(1, 6)
     }
-    assert [counts[index] for index in range(1, 6)] == [1, 2, 1, 2, 1], counts
+    assert [counts[index] for index in range(1, 6)] == [1, 1, 1, 1, 1], counts
     positions = [
         index
         for index, item in enumerate(schedule)
         if int(item["sentence_id"]) == 2
     ]
-    assert len(positions) == 2 and positions == sorted(positions), positions
+    assert len(positions) == 1 and positions == sorted(positions), positions
 
 
-def check_repeated_items_complete_independently_and_wait_until_next_boundary() -> None:
+def check_single_pass_items_complete_and_wait_until_next_boundary() -> None:
     original_path = platform_db.DB_PATH
     original_now = review_rounds._utc_now
     clock = [datetime(2026, 8, 21, 10, 0, tzinfo=timezone.utc)]
@@ -1882,8 +1882,8 @@ def check_repeated_items_complete_independently_and_wait_until_next_boundary() -
                 )
             sentences = [repository.create_sentence(text=f"Review schedule sentence {index}.") for index in range(5)]
             with get_connection() as conn:
-                # These sentences existed before the fixed 08:00 boundary;
-                # they belong to the first cycle's frozen snapshot.
+                # These sentences existed before the 08:00 boundary and belong
+                # to the first cycle.
                 conn.execute(
                     "UPDATE english_sentences SET created_at = '2026-08-20T23:00:00+00:00'"
                 )
@@ -1895,20 +1895,18 @@ def check_repeated_items_complete_independently_and_wait_until_next_boundary() -
 
             first = repository.list_sentences(user_id=1, sort="smart", page=1, page_size=200, resume=True)
             round_id = int(first["review_round"]["id"])
-            assert first["review_round"]["total"] == 7, first["review_round"]
-            repeated = next(item for item in first["items"] if int(item["review_repeat_total"]) == 2)
-            same_sentence_items = [
-                item for item in first["items"] if int(item["id"]) == int(repeated["id"])
-            ]
-            assert len(same_sentence_items) == 2, same_sentence_items
+            assert first["review_round"]["total"] == 5, first["review_round"]
+            assert len({int(item["id"]) for item in first["items"]}) == 5, first["items"]
+            assert all(int(item["review_repeat_total"]) == 1 for item in first["items"]), first["items"]
+            target = first["items"][0]
 
             completed = repository.review_sentence(
                 user_id=1,
-                sentence_id=int(repeated["id"]),
-                round_item_id=int(same_sentence_items[0]["review_round_item_id"]),
+                sentence_id=int(target["id"]),
+                round_item_id=int(target["review_round_item_id"]),
             )
             assert completed and completed["review_round_item_completed"] is True, completed
-            assert completed["review_count"] == int(repeated["review_count"]), completed
+            assert completed["review_count"] == int(target["review_count"]), completed
             assert completed["completion_count"] == 2, completed
             with get_connection() as conn:
                 remaining_same = conn.execute(
@@ -1917,9 +1915,9 @@ def check_repeated_items_complete_independently_and_wait_until_next_boundary() -
                     FROM english_review_round_items
                     WHERE round_id = ? AND sentence_id = ? AND COALESCE(completed_at, '') = ''
                     """,
-                    (round_id, int(repeated["id"])),
+                    (round_id, int(target["id"])),
                 ).fetchone()["count"]
-            assert int(remaining_same) == 1, remaining_same
+            assert int(remaining_same) == 0, remaining_same
 
             with get_connection() as conn:
                 remaining = conn.execute(
@@ -2239,14 +2237,14 @@ CHECKS = (
     check_deleted_sentence_lifetime_stats,
     check_audio_play_does_not_complete_review_item,
     check_sentence_write_boundaries,
-    check_review_queue_includes_audio_optional_sentences_and_freezes_membership,
-    check_exposure_formula_and_double_peak_repeats,
-    check_repeated_items_complete_independently_and_wait_until_next_boundary,
+    check_review_queue_includes_audio_optional_sentences_and_tracks_membership,
+    check_exposure_formula_and_single_pass_schedule,
+    check_single_pass_items_complete_and_wait_until_next_boundary,
     check_review_rounds_use_fixed_boundaries_and_catch_up_without_request,
     check_review_round_test_expiry_override,
-    check_review_round_length_preserves_progress_without_daily_limits,
+    check_review_round_length_and_progress_without_daily_limits,
     check_review_round_catch_up_uses_each_snapshot_length,
-    check_review_round_deadline_is_frozen_and_early_completion_still_works,
+    check_review_round_deadline_tracks_sentence_changes_and_early_completion_still_works,
     check_sqlite_review_concurrency_and_stale_audio,
     check_today_passage_keeps_completed_items,
 ) + REGRESSION_CHECKS

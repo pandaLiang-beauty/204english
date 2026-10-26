@@ -96,19 +96,128 @@ def _next_start_from_history(conn, *, user_id: int, now: datetime) -> datetime:
     return candidate
 
 
-def normalize_active_round_boundary(conn, *, user_id: int, now: datetime | None = None) -> dict | None:
-    """Resize a legacy seven-day round without changing its start or items.
+def _schedule_by_sentence(schedule: list[dict]) -> dict[int, dict]:
+    """Collapse a schedule to one item per sentence in its first-seen order."""
+    result: dict[int, dict] = {}
+    for item in schedule:
+        sentence_id = int(item["sentence_id"])
+        result.setdefault(sentence_id, item)
+    return result
 
-    The frozen item count includes repeats and soft-deleted sentences. Finishing
-    items, adding sentences, or deleting sentences never shifts the deadline.
+
+def sync_active_round_items(
+    conn,
+    *,
+    user_id: int,
+    schedule: list[dict],
+    now: datetime | None = None,
+) -> dict | None:
+    """Make the active round match the current active sentence set.
+
+    A sentence is represented once in the active round. Existing completion
+    state follows the sentence, new sentences are appended in smart order, and
+    sentences removed from the active sentence set leave the current queue.
+    Historical rounds remain unchanged.
     """
+    round_row = _round_row(conn, user_id=user_id)
+    if not round_row:
+        return None
+
+    desired = _schedule_by_sentence(schedule)
+    round_id = int(round_row["id"])
+    existing = conn.execute(
+        """
+        SELECT *
+        FROM english_review_round_items
+        WHERE round_id = ?
+        ORDER BY position, id
+        """,
+        (round_id,),
+    ).fetchall()
+
+    kept_by_sentence: dict[int, Any] = {}
+    for item in existing:
+        sentence_id = int(item["sentence_id"])
+        if sentence_id not in desired:
+            continue
+        previous = kept_by_sentence.get(sentence_id)
+        if previous is None or (
+            not str(previous["completed_at"] or "")
+            and str(item["completed_at"] or "")
+        ):
+            kept_by_sentence[sentence_id] = item
+
+    kept_ids = {int(item["id"]) for item in kept_by_sentence.values()}
+    removed_ids = [int(item["id"]) for item in existing if int(item["id"]) not in kept_ids]
+    if removed_ids:
+        conn.executemany(
+            "DELETE FROM english_review_round_items WHERE id = ?",
+            [(item_id,) for item_id in removed_ids],
+        )
+
+    ordered = list(desired.items())
+    position_offset = max(len(existing), len(ordered), 1) + 1000
+    if kept_by_sentence:
+        conn.execute(
+            "UPDATE english_review_round_items SET position = position + ? WHERE round_id = ?",
+            (position_offset, round_id),
+        )
+
+    timestamp = _iso(now or _utc_now())
+    for position, (sentence_id, item) in enumerate(ordered, start=1):
+        existing_item = kept_by_sentence.get(sentence_id)
+        if existing_item is None:
+            conn.execute(
+                """
+                INSERT INTO english_review_round_items(
+                    round_id, user_id, sentence_id, position,
+                    repeat_index, repeat_total, exposure_score,
+                    completed_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 1, 1, ?, '', ?, ?)
+                """,
+                (
+                    round_id,
+                    user_id,
+                    sentence_id,
+                    position,
+                    float(item.get("exposure_score") or 0),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            continue
+        conn.execute(
+            """
+            UPDATE english_review_round_items
+            SET position = ?, repeat_index = 1, repeat_total = 1,
+                exposure_score = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                position,
+                float(item.get("exposure_score") or 0),
+                timestamp,
+                int(existing_item["id"]),
+            ),
+        )
+
+    return dict(conn.execute("SELECT * FROM english_review_rounds WHERE id = ?", (round_id,)).fetchone())
+
+
+def normalize_active_round_boundary(conn, *, user_id: int, now: datetime | None = None) -> dict | None:
+    """Recalculate the active round deadline from its visible item count."""
     current_now = now or _utc_now()
     row = _round_row(conn, user_id=user_id)
     if not row:
         return None
     started_at = _parse(row["started_at"]) or study_boundary_for(current_now)
     item_count = int(conn.execute(
-        "SELECT COUNT(*) FROM english_review_round_items WHERE round_id = ?",
+        """
+        SELECT COUNT(*)
+        FROM english_review_round_items ri
+        JOIN english_sentences s ON s.id = ri.sentence_id
+        WHERE ri.round_id = ? AND COALESCE(s.deleted_at, '') = ''
+        """,
         (int(row["id"]),),
     ).fetchone()[0])
     expected_expiry = _test_expiry_override(row) or started_at + timedelta(days=round_length_days(item_count))
@@ -243,7 +352,7 @@ def advance_active_round(
     now: datetime | None = None,
     start_at: datetime | None = None,
 ) -> tuple[dict, bool]:
-    """Rotate the user's schedule using fixed Beijing-08:00 boundaries.
+    """Rotate the user's schedule using Beijing-08:00 boundaries.
 
     The caller must hold the SQLite write transaction. This function is used by
     both the background scheduler and request-time recovery.
@@ -286,6 +395,7 @@ def close_due_round(conn, *, user_id: int, now: datetime | None = None) -> datet
 def ensure_active_round(conn, *, user_id: int, schedule: list[dict]) -> tuple[dict, bool]:
     begin_immediate(conn)
     now = _utc_now()
+    sync_active_round_items(conn, user_id=user_id, schedule=schedule, now=now)
     normalize_active_round_boundary(conn, user_id=user_id, now=now)
     start = due_round_start(conn, user_id=user_id, now=now)
     if start is None:

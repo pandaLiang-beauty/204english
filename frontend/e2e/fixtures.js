@@ -36,9 +36,10 @@ function audioBuffer() {
 }
 
 export async function mockStudy(page, options = {}) {
+  const scheduledCount = options.scheduledCount || 22
   const state = {
     requests: [], unhandled: [], failCreate: false,
-    sentences: Array.from({ length: 12 }, (_, index) => sentence(index)),
+    sentences: Array.from({ length: Math.max(12, scheduledCount) }, (_, index) => sentence(index)),
     completed: new Set(), events: [],
     passages: [1, 2].map(id => ({
       id, title: `2026 英语${id === 1 ? '一' : '二'} · Text ${id}`, source_label: '考研英语阅读练习',
@@ -47,11 +48,10 @@ export async function mockStudy(page, options = {}) {
       body_text: 'Reading is more than a way to collect information. It is an opportunity to **encounter** unfamiliar ideas and to examine what we already believe. A useful question is not simply what a writer says, but how the argument has been developed.\n\nWhen we read a difficult passage, it is tempting to stop at every unfamiliar word. Yet the surrounding sentences often provide the **context** we need. Returning to a word after finishing the paragraph can make its meaning much clearer.\n\nThis is why regular practice matters. Small moments of careful reading gradually change the way we approach a text. Over time, ideas that once seemed distant begin to feel familiar.'
     }))
   }
-  const scheduledCount = options.scheduledCount || 22
-  const scheduled = Array.from({ length: scheduledCount }, (_, index) => state.sentences[index % 12]).map((item, index) => ({
+  const scheduled = state.sentences.slice(0, scheduledCount).map((item, index) => ({
     ...item, review_round_item_id: 1000 + index, review_round_position: index + 1,
-    review_repeat_index: Math.floor(index / 12) + 1,
-    review_repeat_total: Math.floor((scheduledCount - item.id) / 12) + 1
+    review_repeat_index: 1,
+    review_repeat_total: 1
   }))
   scheduled.slice(0, options.completedCount || 0).forEach(item => state.completed.add(item.review_round_item_id))
   const round = () => ({ id: 11, total: scheduled.length, completed: state.completed.size,

@@ -344,14 +344,14 @@ Set-Cookie: english_study_session=<opaque-session>; HttpOnly; Max-Age=1209600; P
 GET /api/english/sentences?sort=smart&round_queue=true&resume=true&page_size=40
 ```
 
-响应在普通分页对象上增加 `review_round`，每个 `items[]` 在 `Sentence` 上增加下表字段。**同一句子可能安排多次：列表键必须用 `review_round_item_id`，不能用句子 `id`。**
+响应在普通分页对象上增加 `review_round`，每个 `items[]` 在 `Sentence` 上增加下表字段。列表键使用 `review_round_item_id`，因为完成记录绑定的是本轮安排项。
 
 | 队列项额外字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `review_round_item_id` | integer | 本轮安排 ID；提交完成时使用 |
 | `review_round_position` | integer | 本轮从 1 开始的安排位置 |
-| `review_repeat_index` | integer | 该句本轮第几次出现，从 1 开始 |
-| `review_repeat_total` | integer | 该句本轮总安排次数，当前通常为 1 或 2 |
+| `review_repeat_index` | integer | 该句本轮第几次出现，当前固定为 1 |
+| `review_repeat_total` | integer | 该句本轮总安排次数，当前固定为 1 |
 | `review_exposure` | number | 生成安排时保存的接触度指标 |
 | `review_round_item_completed` | boolean | 该安排当前是否已完成 |
 
@@ -361,7 +361,7 @@ GET /api/english/sentences?sort=smart&round_queue=true&resume=true&page_size=40
 | --- | --- | --- |
 | `id` | integer | 复习周期 ID，与安排 ID 不同 |
 | `started_at` | string | 周期开始时间 |
-| `expires_at` | string | 周期到期时间；由初始安排总数计算周期天数 |
+| `expires_at` | string | 周期到期时间；由当前安排总数动态计算周期天数 |
 | `completed` | integer | 已完成安排数量 |
 | `total` | integer | 当前未删除句子的安排总数 |
 | `remaining` | integer | 剩余安排数量 |
@@ -373,9 +373,9 @@ GET /api/english/sentences?sort=smart&round_queue=true&resume=true&page_size=40
 
 分页外层 `total` 也是**安排数量**。队列页会包含已完成项，客户端可以在展示时隐藏，但不能用隐藏后的数量推算服务器页数。`resume=true` 时使用服务端返回的 `page`；创建新周期时强制返回第 1 页，其他队列请求的页号会被限制在现有页范围内。
 
-周期规则：周期天数为 `max(1, ceil(本轮初始安排数 / 100))`，同一句的重复安排分别计数；例如 1041 项为 11 天，1000 项为 10 天。100 是规划依据，**不是每日完成上限**；整轮始终可见，可自由多做、少做或提前完成。北京时间 08:00 为边界。服务端后台自动推进周期，读取队列也会补偿过期状态。提前完成时等到下一个北京时间 08:00 才开启新周期。当前周期的句子集合与顺序已确定，期间新增句子进入下轮；软删除项会从可见安排中移除，句子正文等仍读取最新内容。初始安排数决定的周期长度不随新增、软删除或完成进度变化。App 恢复前台、到达 `expires_at` / 非空 `next_round_at` 或收到过期结果时应重新获取队列。
+周期规则：周期天数按当前活动安排数动态计算为 `max(1, ceil(安排数 / 100))`，每句每轮只安排一次。100 是规划依据，**不是每日完成上限**；整轮始终可见，可自由多做、少做或提前完成。北京时间 08:00 为边界。服务端后台自动同步当前句子集合、推进周期，读取队列也会补偿调度延迟。周期中新增句子加入当前安排，软删除项从当前队列移除，已有句子的完成状态按句子保留。提前完成时等到下一个北京时间 08:00 才开启新周期。App 恢复前台、到达 `expires_at` / 非空 `next_round_at` 或收到过期结果时应重新获取队列。
 
-建议进度只作提醒，沿用以上字段，不增加接口字段：以 `started_at` 到 `expires_at` 的天数为 D，按北京时间 08:00 计算今天为第 d 个学习日（1—D），截至今天建议累计完成 `ceil(review_round.total × d / D)` 项。与 `completed` 比较，显示还差多少或已超前多少；最后一天的建议累计数等于本轮总数。例：1041 项、11 天、第 6 天，建议累计 568 项；实际完成 117 项时还差 451 项。旧的 7 天活动周期只调整 `expires_at`，保留开始时间、安排 ID 和既有进度。
+建议进度只作提醒，沿用以上字段，不增加接口字段：以 `started_at` 到 `expires_at` 的天数为 D，按北京时间 08:00 计算今天为第 d 个学习日（1—D），截至今天建议累计完成 `ceil(review_round.total × d / D)` 项。与 `completed` 比较，显示还差多少或已超前多少；最后一天的建议累计数等于本轮总数。当前周期同步活动句子集合并按当前数量重算到期时间；已完成状态按句子保留，历史周期不变。
 
 ### GET `/api/english/flow/queue`
 
