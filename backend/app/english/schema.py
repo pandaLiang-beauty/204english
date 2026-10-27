@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS english_review_rounds (
     expires_at TEXT NOT NULL,
     ended_at TEXT NOT NULL DEFAULT '',
     end_reason TEXT NOT NULL DEFAULT '',
+    previous_round_id INTEGER REFERENCES english_review_rounds(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -273,6 +274,15 @@ def _ensure_repeatable_review_items(conn) -> None:
     )
 
 
+def _ensure_review_round_columns(conn) -> None:
+    _ensure_column(
+        conn,
+        "english_review_rounds",
+        "previous_round_id",
+        "previous_round_id INTEGER REFERENCES english_review_rounds(id) ON DELETE SET NULL",
+    )
+
+
 def _collapse_active_round_repeats(conn) -> None:
     """Migrate the active round to one item per sentence.
 
@@ -310,11 +320,12 @@ def _collapse_active_round_repeats(conn) -> None:
         kept = sorted(kept_by_sentence.values(), key=lambda item: (int(item["position"]), int(item["id"])))
         kept_ids = {int(item["id"]) for item in kept}
         removed_ids = [int(item["id"]) for item in items if int(item["id"]) not in kept_ids]
-        if removed_ids:
-            conn.executemany(
-                "DELETE FROM english_review_round_items WHERE id = ?",
-                [(item_id,) for item_id in removed_ids],
-            )
+        if not removed_ids:
+            continue
+        conn.executemany(
+            "DELETE FROM english_review_round_items WHERE id = ?",
+            [(item_id,) for item_id in removed_ids],
+        )
 
         for position, item in enumerate(kept, start=1):
             conn.execute(
@@ -333,6 +344,7 @@ def initialize_schema() -> None:
         conn.executescript(SCHEMA_SQL)
         _ensure_exposure_columns(conn)
         _ensure_repeatable_review_items(conn)
+        _ensure_review_round_columns(conn)
         _ensure_sentence_audio_columns(conn)
         _ensure_sentence_translation_columns(conn)
         _ensure_passage_columns(conn)

@@ -36,7 +36,11 @@ from scripts.english import backfill_english_definitions
 from scripts.english.review_round_checks import (
     check_review_round_length_and_progress_without_daily_limits,
     check_review_round_catch_up_uses_each_snapshot_length,
-    check_review_round_deadline_tracks_sentence_changes_and_early_completion_still_works,
+    check_review_round_freeze_tracks_visible_membership_and_early_completion,
+    check_frozen_round_positions_survive_refresh_completion_scheduler_and_restart,
+    check_review_priority_ranking_groups_and_five_x_formula,
+    check_review_events_record_their_round_and_item,
+    check_round_play_context_ignores_previous_round_tail_events,
 )
 from scripts.english.review_regression_checks import REGRESSION_CHECKS
 
@@ -1727,7 +1731,7 @@ def check_sentence_write_boundaries() -> None:
                 word_translations={"focus": "重点"},
             )
             repository.list_sentences(user_id=1, sort="smart", page=1, page_size=20, resume=True)
-            second = repository.create_sentence(text="A later sentence joins the current round on the next queue read.")
+            second = repository.create_sentence(text="A later sentence waits for the next review round.")
             reviewed = repository.review_sentence(user_id=1, sentence_id=int(second["id"]))
             assert reviewed and reviewed["review_round_item_completed"] is False, reviewed
 
@@ -1806,8 +1810,8 @@ def check_review_queue_includes_audio_optional_sentences_and_tracks_membership()
                 resume=True,
             )
             assert refreshed_load["review_round"]["id"] == round_id, refreshed_load
-            assert refreshed_load["total"] == 4, refreshed_load
-            assert any(int(item["id"]) == int(later["id"]) for item in refreshed_load["items"]), refreshed_load
+            assert refreshed_load["total"] == 3, refreshed_load
+            assert all(int(item["id"]) != int(later["id"]) for item in refreshed_load["items"]), refreshed_load
     finally:
         platform_db.DB_PATH = original_path
         repository.ENGLISH_AUDIO_DIR = original_audio_dir
@@ -2244,7 +2248,11 @@ CHECKS = (
     check_review_round_test_expiry_override,
     check_review_round_length_and_progress_without_daily_limits,
     check_review_round_catch_up_uses_each_snapshot_length,
-    check_review_round_deadline_tracks_sentence_changes_and_early_completion_still_works,
+    check_review_round_freeze_tracks_visible_membership_and_early_completion,
+    check_frozen_round_positions_survive_refresh_completion_scheduler_and_restart,
+    check_review_priority_ranking_groups_and_five_x_formula,
+    check_review_events_record_their_round_and_item,
+    check_round_play_context_ignores_previous_round_tail_events,
     check_sqlite_review_concurrency_and_stale_audio,
     check_today_passage_keeps_completed_items,
 ) + REGRESSION_CHECKS

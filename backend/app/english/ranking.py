@@ -78,6 +78,59 @@ def _sentence_exposure(row: dict, settings: dict) -> tuple[float, float]:
     return exposure, word_signal
 
 
+def sentence_play_total(row: dict) -> int:
+    """Return the sentence-level audio play count used by review ranking."""
+    return _safe_int(row.get("review_count"))
+
+
+def word_play_totals_by_key(
+    row: dict,
+    canonical_map: dict[str, str] | None = None,
+) -> dict[str, int]:
+    """Return current focus-word play totals keyed by canonical focus word."""
+    return {
+        str(entry["key"]): _safe_int(entry.get("play_count"))
+        for entry in _sentence_focus_entries(row, canonical_map)
+    }
+
+
+def play_exposure(
+    sentence_plays: int,
+    word_plays: dict[str, int],
+    settings: dict | None = None,
+) -> float:
+    """Calculate E using the project's existing sentence and word weights."""
+    selected_settings = settings or SMART_REVIEW_SETTINGS
+    repeat_decay = float(selected_settings["algorithm_word_repeat_decay"])
+    word_signal = sum(_word_play_signal(_safe_int(count), repeat_decay) for count in word_plays.values())
+    return (
+        _safe_int(sentence_plays) * float(selected_settings["algorithm_sentence_weight"])
+        + word_signal * float(selected_settings["algorithm_word_weight"])
+    )
+
+
+def _previous_word_totals_by_key(
+    row: dict,
+    previous_word_plays: dict[str, int],
+    canonical_map: dict[str, str] | None = None,
+) -> dict[str, int]:
+    if not previous_word_plays:
+        return {}
+    key_by_surface: dict[str, str] = {}
+    for entry in _sentence_focus_entries(row, canonical_map):
+        key = str(entry["key"])
+        for surface in [key, *entry.get("surfaces", [])]:
+            normalized = _normalize_focus_word(surface)
+            if normalized:
+                key_by_surface.setdefault(normalized, key)
+    totals: dict[str, int] = {}
+    for word, count in previous_word_plays.items():
+        key = key_by_surface.get(_normalize_focus_word(word))
+        if key:
+            totals[key] = totals.get(key, 0) + _safe_int(count)
+    return totals
+
+
 def _resolve_sentence_peak(rows: list[dict], settings: dict) -> tuple[float, dict]:
     fixed_peak = float(settings["algorithm_sentence_peak"])
     if settings.get("algorithm_peak_mode") != "corpus-average" or not rows:
@@ -594,3 +647,87 @@ def _rank_sentences_by_peak_familiarity(rows: list[dict], settings: dict | None 
         ranked.append((selected["row"], selected["metrics"]))
         recent_word_sets.append(selected["words"])
     return ranked
+
+
+def rank_sentences_for_review(
+    rows: list[dict],
+    *,
+    previous_completed_sentence_ids: set[int] | None = None,
+    previous_sentence_plays: dict[int, int] | None = None,
+    previous_word_plays: dict[int, dict[str, int]] | None = None,
+    settings: dict | None = None,
+) -> list[tuple[dict, dict]]:
+    """Rank the frozen review schedule using the agreed previous-round rules.
+
+    Sentences absent from the previous round, or present but not completed,
+    form the first priority group. Previously completed sentences form the
+    second group. Within a group the descending score is::
+
+        5 * previous-round exposure - exposure before the previous round
+
+    Exposure uses the existing sentence weight 1.0, word weight 0.2 and word
+    repeat decay 0.35. Historical counts exclude the previous round before the
+    nonlinear word decay is applied. Ties are resolved by sentence ID.
+    """
+    selected_settings = settings or SMART_REVIEW_SETTINGS
+    completed_ids = previous_completed_sentence_ids or set()
+    previous_sentence_plays = previous_sentence_plays or {}
+    previous_word_plays = previous_word_plays or {}
+    canonical_map = _build_word_canonical_map(rows)
+    scored: list[tuple[dict, dict]] = []
+    for row in rows:
+        sentence_id = int(row["id"])
+        current_words = word_play_totals_by_key(row, canonical_map)
+        previous_words = _previous_word_totals_by_key(
+            row,
+            previous_word_plays.get(sentence_id, {}),
+            canonical_map,
+        )
+        current_sentence_plays = sentence_play_total(row)
+        previous_sentence_count = _safe_int(previous_sentence_plays.get(sentence_id))
+        historical_sentence_plays = max(current_sentence_plays - previous_sentence_count, 0)
+        historical_words = {
+            word: max(count - previous_words.get(word, 0), 0)
+            for word, count in current_words.items()
+        }
+        previous_exposure = play_exposure(previous_sentence_count, previous_words, selected_settings)
+        historical_exposure = play_exposure(historical_sentence_plays, historical_words, selected_settings)
+        priority_score = 5.0 * previous_exposure - historical_exposure
+        previous_completed = sentence_id in completed_ids
+        priority_group = 2 if previous_completed else 1
+        scored.append(
+            (
+                row,
+                {
+                    "priority_group": priority_group,
+                    "priority_score": round(priority_score, 6),
+                    "previous_completed": previous_completed,
+                    "previous_exposure": round(previous_exposure, 6),
+                    "historical_exposure": round(historical_exposure, 6),
+                    "previous_sentence_plays": previous_sentence_count,
+                    "historical_sentence_plays": historical_sentence_plays,
+                },
+            )
+        )
+    scored.sort(
+        key=lambda item: (
+            int(item[1]["priority_group"]),
+            -float(item[1]["priority_score"]),
+            int(item[0]["id"]),
+        )
+    )
+    return scored
+
+
+def build_priority_review_schedule(ranked_items: list[tuple[dict, dict]]) -> list[dict]:
+    """Freeze one schedule item per ranked sentence."""
+    return [
+        {
+            "sentence_id": int(row["id"]),
+            "repeat_index": 1,
+            "repeat_total": 1,
+            "exposure_score": float(metrics.get("previous_exposure") or 0),
+            "priority_score": float(metrics.get("priority_score") or 0),
+        }
+        for row, metrics in ranked_items
+    ]

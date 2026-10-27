@@ -331,7 +331,7 @@ suspend fun completeArrangement(item: SentenceDto): Response<ReviewResultDto> =
 
 请求期间禁用同一项的重复完成操作。完成请求超时后可用原安排 ID 重试；用 itemIsCompleted 和 reviewRound 恢复真实状态与完成数，newlyCompleted=false 只表示没有新增完成记录。仅合并与当前周期 ID 一致的响应，同周期乱序响应不能降低已知完成数。roundExpired=true 或兼容旧服务端时缺少状态字段，则重新获取队列。播放事件仍不能无条件重试。
 
-退出复习页面再回来、App 恢复前台、到达 expiresAt 或非空 nextRoundAt 时刷新队列。周期天数按当前安排数动态计算为 `max(1, ceil(安排数 / 100))`；新增句子加入当前安排，软删除句子从当前队列移除。周期和北京时间 08:00 边界由后端决定，设备改时区不改变服务端安排。整轮可自由复习，每日完成量不受限，已有接口路径、字段和类型保持兼容。
+退出复习页面再回来、App 恢复前台、到达 expiresAt 或非空 nextRoundAt 时刷新队列。周期天数在建轮时按冻结安排数计算为 `max(1, ceil(安排数 / 100))`；刷新和完成不会改变当前轮的 item ID、position 或期限，新增句子只进入下一周期，软删除句子从可见队列移除但不移动其他项。周期和北京时间 08:00 边界由后端决定，设备改时区不改变服务端安排。整轮可自由复习，每日完成量不受限，已有接口路径、字段和类型保持兼容。
 
 客户端如需累计提醒，可用 startedAt、expiresAt 计算周期天数 D，按北京时间 08:00 计算今天为第 d 个学习日，建议累计 `ceil(total × d / D)` 项，再与 completed 比较显示差额或超前量。建议进度不用于禁用按钮或截断队列。
 

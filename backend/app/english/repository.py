@@ -24,16 +24,17 @@ from .ranking import (
     _normalize_focus_word,
     _rank_sentences_by_peak_familiarity,
     _word_key_candidates,
+    build_priority_review_schedule,
     build_review_schedule,
+    rank_sentences_for_review,
     sentence_word_network_metrics,
 )
 from .review_rounds import (
     advance_active_round,
     close_due_round,
     complete_current_item,
-    normalize_active_round_boundary,
-    sync_active_round_items,
     queue_state,
+    round_play_context,
 )
 from .stats import review_heatmap, stats
 from .word_play_history import lifetime_word_total
@@ -781,6 +782,17 @@ def _search_filter(search: str, params: dict) -> str:
     """
 
 
+def _build_next_review_schedule(conn, *, user_id: int, rows: list[dict]) -> list[dict]:
+    context = round_play_context(conn, user_id=user_id)
+    ranked = rank_sentences_for_review(
+        rows,
+        previous_completed_sentence_ids=context["completed_sentence_ids"],
+        previous_sentence_plays=context["sentence_plays"],
+        previous_word_plays=context["word_plays"],
+    )
+    return build_priority_review_schedule(ranked)
+
+
 def list_sentences(
     *,
     user_id: int | None = None,
@@ -831,8 +843,8 @@ def list_sentences(
         if user_id is not None and not search and not include_deleted:
             row_by_id = {int(row["id"]): row for row, _ in ranked_items}
             metrics_by_id = {int(row["id"]): metrics for row, metrics in ranked_items}
-            schedule = build_review_schedule(ranked_items)
             with get_connection() as conn:
+                schedule = _build_next_review_schedule(conn, user_id=int(user_id), rows=rows)
                 state = queue_state(
                     conn,
                     user_id=int(user_id),
@@ -907,9 +919,8 @@ def advance_due_review_rounds(*, now: datetime | None = None, user_id: int | Non
     """Create or rotate boundary-based schedules for every local user.
 
     This is called by the process scheduler and is also safe to call as a
-    request-time recovery path. It synchronizes the active sentence set and
-    changes a round when its current boundary has arrived (or when no round
-    exists yet).
+    request-time recovery path. It closes a due round and creates the next
+    frozen schedule when its boundary has arrived (or when no round exists).
     """
     current_now = now or review_rounds._utc_now()
     with get_connection() as conn:
@@ -927,19 +938,7 @@ def advance_due_review_rounds(*, now: datetime | None = None, user_id: int | Non
                     (user_id,),
                 ).fetchone()
             )
-            active_rows = rows_to_dicts(
-                conn.execute(
-                    "SELECT * FROM english_sentences WHERE COALESCE(deleted_at, '') = '' ORDER BY id"
-                ).fetchall()
-            )
-            active_schedule = build_review_schedule(_rank_sentences_by_peak_familiarity(active_rows))
-            sync_active_round_items(
-                conn,
-                user_id=user_id,
-                schedule=active_schedule,
-                now=current_now,
-            )
-            normalize_active_round_boundary(conn, user_id=user_id, now=current_now)
+            review_rounds._apply_test_expiry_override(conn, user_id=user_id)
             boundary = close_due_round(conn, user_id=user_id, now=current_now)
             if boundary is None:
                 current = conn.execute(
@@ -949,6 +948,7 @@ def advance_due_review_rounds(*, now: datetime | None = None, user_id: int | Non
                 if current:
                     results.append({"user_id": user_id, "round_id": int(current["id"]), "created": False})
                 continue
+            previous_context = round_play_context(conn, user_id=user_id)
             rows = rows_to_dicts(
                 conn.execute(
                     "SELECT * FROM english_sentences WHERE COALESCE(deleted_at, '') = '' ORDER BY id"
@@ -965,8 +965,13 @@ def advance_due_review_rounds(*, now: datetime | None = None, user_id: int | Non
                 ]
                 snapshot_ids = tuple(int(row["id"]) for row in snapshot_rows)
                 if snapshot_ids != previous_snapshot:
-                    ranked_items = _rank_sentences_by_peak_familiarity(snapshot_rows)
-                    schedule = build_review_schedule(ranked_items)
+                    ranked_items = rank_sentences_for_review(
+                        snapshot_rows,
+                        previous_completed_sentence_ids=previous_context["completed_sentence_ids"],
+                        previous_sentence_plays=previous_context["sentence_plays"],
+                        previous_word_plays=previous_context["word_plays"],
+                    )
+                    schedule = build_priority_review_schedule(ranked_items)
                     previous_snapshot = snapshot_ids
                 next_boundary = boundary + timedelta(days=review_rounds.round_length_days(len(schedule)))
                 if next_boundary > current_now:
@@ -1368,6 +1373,47 @@ def _record_event(
     )
 
 
+def _active_round_item_context(
+    conn,
+    *,
+    user_id: int,
+    sentence_id: int,
+    round_item_id: int | None = None,
+) -> dict:
+    round_row = conn.execute(
+        "SELECT id FROM english_review_rounds WHERE user_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    if not round_row:
+        return {}
+    round_id = int(round_row["id"])
+    item = None
+    if round_item_id:
+        item = conn.execute(
+            """
+            SELECT id
+            FROM english_review_round_items
+            WHERE id = ? AND round_id = ? AND user_id = ? AND sentence_id = ?
+            """,
+            (int(round_item_id), round_id, user_id, sentence_id),
+        ).fetchone()
+    if item is None:
+        item = conn.execute(
+            """
+            SELECT id
+            FROM english_review_round_items
+            WHERE round_id = ? AND user_id = ? AND sentence_id = ?
+            ORDER BY position
+            LIMIT 1
+            """,
+            (round_id, user_id, sentence_id),
+        ).fetchone()
+    return {
+        "round_id": round_id,
+        "round_item_id": int(item["id"]) if item else None,
+    }
+
+
 def review_sentence(
     *,
     user_id: int,
@@ -1397,7 +1443,19 @@ def review_sentence(
                 """,
                 (now, sentence_id),
             )
-            _record_event(conn, user_id=user_id, event_type=clean_event_type, sentence_id=sentence_id)
+            event_context = _active_round_item_context(
+                conn,
+                user_id=user_id,
+                sentence_id=sentence_id,
+                round_item_id=round_item_id,
+            )
+            _record_event(
+                conn,
+                user_id=user_id,
+                event_type=clean_event_type,
+                sentence_id=sentence_id,
+                metadata=event_context,
+            )
         elif complete_round_item:
             round_result = complete_current_item(
                 conn,
@@ -1420,7 +1478,10 @@ def review_sentence(
                     user_id=user_id,
                     event_type=clean_event_type,
                     sentence_id=sentence_id,
-                    metadata={"round_item_id": round_result.get("round_item_id")},
+                    metadata={
+                        "round_id": round_result.get("round_id"),
+                        "round_item_id": round_result.get("round_item_id"),
+                    },
                 )
         updated = conn.execute("SELECT * FROM english_sentences WHERE id = ?", (sentence_id,)).fetchone()
     if not updated:
@@ -1469,7 +1530,15 @@ def record_word_play(*, user_id: int, sentence_id: int, word: str) -> dict | Non
             """,
             (_json_dumps(counts, {}), word_total, now, sentence_id),
         )
-        _record_event(conn, user_id=user_id, event_type="word_play", sentence_id=sentence_id, word=clean_word)
+        event_context = _active_round_item_context(conn, user_id=user_id, sentence_id=sentence_id)
+        _record_event(
+            conn,
+            user_id=user_id,
+            event_type="word_play",
+            sentence_id=sentence_id,
+            word=clean_word,
+            metadata=event_context,
+        )
         updated = conn.execute("SELECT * FROM english_sentences WHERE id = ?", (sentence_id,)).fetchone()
     return serialize_sentence(dict(updated)) if updated else None
 
